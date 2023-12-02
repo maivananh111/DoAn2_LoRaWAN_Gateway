@@ -1,0 +1,29 @@
+1. lwipopts.h
+#define SNTP_SUPPRESS_DELAY_CHECK
+#define SNTP_UPDATE_DELAY           	  15000
+#define SNTP_SET_SYSTEM_TIME_US(sec, us)  (sntp_set_system_time(sec, us))
+#define SNTP_GET_SYSTEM_TIME(sec, us)     (sntp_get_system_time(&(sec), &(us)))
+
+
+2. sntp.h
+void sntp_get_system_time(uint32_t *sec, uint32_t *us);
+
+
+3.sntp.c
+static void sntp_set_system_time(uint32_t sec, uint32_t us);
+static void sntp_sync_time(struct timeval *tv);
+struct timeval tv;
+
+int _gettimeofday( struct timeval *tv, void *tzvp ){
+    // you can add code here there many example in google search.
+    return 0;  // return non-zero for error
+} // end _gettimeofday()
+void sntp_set_system_time(uint32_t sec, uint32_t us){
+    tv.tv_sec = sec;
+    tv.tv_usec = us;
+}
+
+void sntp_get_system_time(uint32_t *sec, uint32_t *us){
+     *sec = tv.tv_sec;
+     *us = tv.tv_usec;
+}
