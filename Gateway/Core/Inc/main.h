@@ -57,6 +57,14 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LED_WIFI_Pin GPIO_PIN_13
+#define LED_WIFI_GPIO_Port GPIOC
+#define ETH_LINK_INT_Pin GPIO_PIN_0
+#define ETH_LINK_INT_GPIO_Port GPIOC
+#define UART8_RX_Pin GPIO_PIN_0
+#define UART8_RX_GPIO_Port GPIOE
+#define UART8_TX_Pin GPIO_PIN_1
+#define UART8_TX_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 
