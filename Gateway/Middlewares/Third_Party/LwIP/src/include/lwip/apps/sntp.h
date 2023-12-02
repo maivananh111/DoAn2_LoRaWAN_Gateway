@@ -58,6 +58,9 @@ u8_t sntp_enabled(void);
 void sntp_setserver(u8_t idx, const ip_addr_t *addr);
 const ip_addr_t* sntp_getserver(u8_t idx);
 
+void sntp_set_system_time(uint32_t sec, uint32_t us);
+void sntp_get_system_time(uint32_t *sec, uint32_t *us);
+
 #if SNTP_MONITOR_SERVER_REACHABILITY
 u8_t sntp_getreachability(u8_t idx);
 #endif /* SNTP_MONITOR_SERVER_REACHABILITY */

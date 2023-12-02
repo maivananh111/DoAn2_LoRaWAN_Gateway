@@ -57,10 +57,21 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LORA1_IO0_Pin GPIO_PIN_3
+#define LORA1_IO0_GPIO_Port GPIOE
+#define LORA1_IO0_EXTI_IRQn EXTI3_IRQn
+#define LORA1_IO1_Pin GPIO_PIN_4
+#define LORA1_IO1_GPIO_Port GPIOE
+#define LORA1_IO1_EXTI_IRQn EXTI4_IRQn
+#define LORA1_RST_Pin GPIO_PIN_5
+#define LORA1_RST_GPIO_Port GPIOE
+#define LORA1_CS_Pin GPIO_PIN_6
+#define LORA1_CS_GPIO_Port GPIOE
 #define LED_WIFI_Pin GPIO_PIN_13
 #define LED_WIFI_GPIO_Port GPIOC
 #define ETH_LINK_INT_Pin GPIO_PIN_0
 #define ETH_LINK_INT_GPIO_Port GPIOC
+#define ETH_LINK_INT_EXTI_IRQn EXTI0_IRQn
 #define UART8_RX_Pin GPIO_PIN_0
 #define UART8_RX_GPIO_Port GPIOE
 #define UART8_TX_Pin GPIO_PIN_1
