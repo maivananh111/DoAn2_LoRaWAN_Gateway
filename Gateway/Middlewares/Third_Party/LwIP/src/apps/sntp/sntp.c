@@ -280,7 +280,9 @@ sntp_format_time(s32_t sec)
 #endif /* LWIP_DEBUG && !sntp_format_time */
 
 
+
 struct timeval tv;
+
 
 /**
  * SNTP processing of received timestamp
@@ -868,6 +870,7 @@ sntp_getservername(u8_t idx)
   return NULL;
 }
 #endif /* SNTP_SERVER_DNS */
+
 
 void sntp_set_system_time(uint32_t sec, uint32_t us){
     tv.tv_sec = sec;

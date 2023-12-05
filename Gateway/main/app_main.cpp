@@ -5,6 +5,9 @@
  *      Author: anh
  */
 
+#include "gpio.h"
+#include "spi.h"
+
 #include "stdio.h"
 #include "string.h"
 
@@ -34,7 +37,6 @@
  *
  */
 
-extern SPI_HandleTypeDef hspi1;
 lrphys lora_ch0;
 lrphys_hwconfig_t lora_ch0_hw = {
 	.spi      = &hspi1,
@@ -69,8 +71,6 @@ lorawan_gateway_t gateway = {
 };
 
 
-
-
 /**
  *
  */
@@ -79,7 +79,7 @@ void app_main(void){
 	ethernet_init_link(5000);
 
 	while(1){
-		vTaskDelay(1000);
+		vTaskDelay(500);
 	}
 }
 
@@ -118,14 +118,14 @@ void ethernet_link_event_handler(ethernet_event_t event){
 
 	switch(event){
 		case ETHERNET_EVENT_LINKUP:
-			LOG_EVENT(TAG, "Ethernet event linked up");
+			LOG_EVENT(TAG, "Ethernet event link up");
 		break;
 		case ETHERNET_EVENT_LINKDOWN:
-			LOG_EVENT(TAG, "Ethernet event linked down");
+			LOG_EVENT(TAG, "Ethernet event link down");
 		break;
 		case ETHERNET_EVENT_GOTIP:
 			LOG_EVENT(TAG, "Ethernet event got IP");
-			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
+			xTaskCreate(task_lorawan, "task_lorawan", 65536/4, NULL, 10, NULL);
 		break;
 	}
 }

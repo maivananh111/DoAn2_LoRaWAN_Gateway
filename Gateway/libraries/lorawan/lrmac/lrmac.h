@@ -13,8 +13,8 @@ extern "C"{
 #endif
 
 #include "lorawan/lrphys/lrphys.h"
-
-
+#include "FreeRTOS.h"
+#include "queue.h"
 
 typedef struct{
 	uint8_t          channel      = 0;
@@ -22,6 +22,17 @@ typedef struct{
 	uint8_t          *payload     = NULL;
 	uint8_t          payload_size = 0;
 } lrmac_macpkt_t;
+
+typedef struct{
+	long freq;
+	uint8_t powe;
+	uint8_t sf;
+	long bw;
+	uint8_t codr;
+	uint32_t prea;
+	bool crc;
+	bool iiq;
+} lrmac_phys_setting_t;
 
 
 typedef struct{
@@ -34,17 +45,17 @@ typedef struct{
 	int8_t snr;
 } lrmac_phys_info_t;
 
-
-
-void lrmac_initialize(void);
+void lrmac_initialize(QueueHandle_t *pqueue_macpkt);
+bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channel = 0);
 
 void lrmac_get_phys_info(uint8_t channel, lrmac_phys_info_t *info);
+uint8_t lrmac_get_channel_by_freq(long freq);
 
-bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channel = 0);
+void lrmac_apply_setting(uint8_t channel, lrmac_phys_setting_t *phys_settings);
+void lrmac_restore_default_setting(uint8_t channel);
 
 void lrmac_forward_downlink(lrmac_macpkt_t *pkt);
 
-uint8_t lrmac_rxpacket_available(lrmac_macpkt_t *ppkt);
 
 #ifdef __cplusplus
 }

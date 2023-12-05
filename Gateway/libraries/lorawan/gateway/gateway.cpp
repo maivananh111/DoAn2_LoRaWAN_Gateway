@@ -11,6 +11,7 @@
 #include "semphr.h"
 
 #include "log/log.h"
+#include "sysinfo/sysinfo.h"
 
 #include "lorawan/lrphys/lrphys.h"
 #include "lorawan/lrmac/lrmac.h"
@@ -31,17 +32,18 @@ using json = nlohmann::json;
 
 static const char *TAG = "LoRaWAN";
 
+__IO QueueHandle_t queue_uplink;
+__IO QueueHandle_t queue_downlink;
 
 /**
  * Function prototype.
  */
 static void lrwgw_send_status(lorawan_gateway_t *pgtw);
 static void lrwgw_keepalive(lorawan_gateway_t *pgtw);
-static void lrwgw_handle_mac_rxpkt(lorawan_gateway_t *pgtw);
+static void lrwgw_forward_upllink(lorawan_gateway_t *pgtw);
 static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw);
 
 static void lrwgw_udpsemtech_event_handler(udpsem_t *phander, udpsem_event_t event, void *param);
-
 
 
 /**
@@ -50,8 +52,12 @@ static void lrwgw_udpsemtech_event_handler(udpsem_t *phander, udpsem_event_t eve
 
 
 void lorawan_gateway_initialize(lorawan_gateway_t *pgtw){
-	lrmac_initialize();
-	udpsem_initialize(&pgtw->udpsemtech, &pgtw->server_info, &pgtw->gateway_info);
+	queue_uplink = xQueueCreate(LRWGW_PHYS_RXPKT_QUEUE_SIZE, sizeof(uint32_t));
+	queue_downlink = xQueueCreate(LRWGW_PHYS_TXPKT_QUEUE_SIZE, sizeof(uint32_t));
+
+	lrmac_initialize((QueueHandle_t *)&queue_uplink);
+
+	udpsem_initialize(&pgtw->udpsemtech, &pgtw->server_info, &pgtw->gateway_info, (QueueHandle_t *)&queue_downlink);
 	udpsem_register_event_handler(&pgtw->udpsemtech, lrwgw_udpsemtech_event_handler, NULL);
 }
 
@@ -105,9 +111,9 @@ void lorawan_gateway_process(lorawan_gateway_t *pgtw){
 	lrwgw_keepalive(pgtw);
 
 	/**
-	 * Send received packet.
+	 * Forward uplink packe.
 	 */
-	lrwgw_handle_mac_rxpkt(pgtw);
+	lrwgw_forward_upllink(pgtw);
 
 	/**
 	 * Process the txpk form udp semtech event.
@@ -140,10 +146,10 @@ static void lrwgw_keepalive(lorawan_gateway_t *pgtw){
 	}
 }
 
-static void lrwgw_handle_mac_rxpkt(lorawan_gateway_t *pgtw){
-	lrmac_macpkt_t *macpkt = NULL;
+void lrwgw_forward_upllink(lorawan_gateway_t *pgtw){
+	__IO lrmac_macpkt_t *macpkt;
 
-	if(lrmac_rxpacket_available(macpkt) == pdTRUE){
+	if(xQueueReceive(queue_uplink, (void *)&macpkt, 10) == pdTRUE){
 		if(macpkt != NULL){
 			/** Increment rx packet counter */
 			switch(macpkt->eventid){
@@ -181,83 +187,86 @@ static void lrwgw_handle_mac_rxpkt(lorawan_gateway_t *pgtw){
 				udpsem_push_data(&pgtw->udpsemtech, &rxpkt, 0);
 
 				free(macpkt->payload);
-				free(macpkt);
+				free((lrmac_macpkt_t *)macpkt);
 
 				if(pgtw->event_handler)
 					pgtw->event_handler(pgtw, LORAWAN_GATEWAY_EVENT_UPLINK, pgtw->event_parameter);
 			}
 		}
+		else{
+			LOG_ERROR(TAG, "NULL packet from MAC");
+		}
 	}
 }
 
 static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw){
-	udpsem_txpk_t *txpkt = NULL;
+	uint8_t *downlink_pkt = NULL;
 
-	if(udpsem_txpkt_available(&pgtw->udpsemtech, txpkt) == pdTRUE){
-		if(txpkt == NULL){
+	if(xQueueReceive(queue_downlink, &downlink_pkt, 10) == pdTRUE){
+		udpsem_txpk_t *txpkt = NULL;
+		udpsem_txpk_ack_error_t ack_error = UDPSEM_ERROR_NONE;
+		uint8_t channel = 0;
+		uint32_t gps_time = 0;
+
+		if(downlink_pkt == NULL){
 			LOG_ERROR(TAG, "NULL pointer at %s -> %d", __FUNCTION__, __LINE__);
 			return;
 		}
 
-
-		udpsem_txpk_ack_error_t ack_error = UDPSEM_ERROR_NONE;
-		struct timeval ntp_time;
-		uint64_t gps_time;
-	    uint32_t sec, us;
-
-	    /** Get time from NTP server */
-	    SNTP_GET_SYSTEM_TIME(sec, us);
-	    ntp_time.tv_sec = sec;
-	    ntp_time.tv_usec = us;
-	    struct tm *utc = gmtime(&ntp_time.tv_sec);
-	    struct tm gps_epoch = {
-			.tm_mday = 6,
-			.tm_mon = 0,
-			.tm_year = 1980 - 1900,
-		};
-		gps_time = (uint64_t)(mktime(utc) - mktime(&gps_epoch) + 18);
-
-		if(txpkt->tmst == gps_time){ 													  /** Check response time */
-			if(udpsem_is_modu_lora(txpkt)){ 											  /** Check module **/
-				if(txpkt->freq >= LRWGW_FREQ_MIN && txpkt->freq <= LRWGW_FREQ_MAX){ 	  /** Check frequency */
-					if(txpkt->powe >= LRWGW_POWER_MIN && txpkt->powe <= LRWGW_POWER_MAX){ /** Check power */
-						if(txpkt->sf >= 7 && txpkt->sf <= 12){
-							if(txpkt->codr >= 5 && txpkt->codr <= 8){
-								if(txpkt->imme == true){ /** forward immediately */
-
-								}
-								else{ /** Schedule down link*/
-
-								}
-							}
-							else{ /** Bad coding rate */
-								ack_error = UDPSEM_ERROR_TOO_LATE;
-							}
-						}
-						else{ /** Bad SF */
-							ack_error = UDPSEM_ERROR_TOO_LATE;
-						}
-					}
-					else{ /** Bad Tx Power */
-						ack_error = UDPSEM_ERROR_TX_POWER;
-					}
-				}
-				else{ /** Bad Frequency */
-					ack_error = UDPSEM_ERROR_TX_FREQ;
-				}
-			}
-			else{ /** Bad Module */
-				ack_error = UDPSEM_ERROR_TX_FREQ;
-			}
+		txpkt = (udpsem_txpk_t *)malloc(sizeof(udpsem_txpk_t));
+		if(txpkt == NULL){
+    		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
+    		free(downlink_pkt);
+    		return;
 		}
-		else if(txpkt->tmst < gps_time){
-			ack_error = UDPSEM_ERROR_TOO_EARLY;
+
+		if(udpsem_parse_pull_resp(downlink_pkt, txpkt) == false){
+    		LOG_ERROR(TAG, "Json format error at %s -> %d", __FUNCTION__, __LINE__);
+    		free(downlink_pkt);
+    		return;
 		}
-		else{
-			ack_error = UDPSEM_ERROR_TOO_LATE;
+
+		gps_time = udpsem_get_ntp_gps_time();
+
+		LOG_MEM(TAG, "Modulation      : %s", txpkt->modu);
+		LOG_MEM(TAG, "Frequency       : %f", txpkt->freq);
+		LOG_MEM(TAG, "Spreading Factor: %d", txpkt->sf);
+		LOG_MEM(TAG, "Band Width      : %d", txpkt->bw);
+		LOG_MEM(TAG, "Coding Rate     : %d", txpkt->codr);
+		LOG_MEM(TAG, "Preamble length : %d", txpkt->prea);
+		LOG_MEM(TAG, "Power           : %d", txpkt->powe);
+
+		ack_error = udpsem_check_error(txpkt, gps_time);
+		channel = lrmac_get_channel_by_freq((long)(txpkt->freq * 1E6));
+		if(ack_error != UDPSEM_ERROR_TX_FREQ && ack_error != UDPSEM_ERROR_TX_POWER){
+			if(txpkt->imme == true){ /** forward immediately */
+				LOG_WARN(TAG, "Forward down link immediately");
+				lrmac_phys_setting_t phys_setting;
+				phys_setting.freq = (long)(txpkt->freq * 1E6);
+				phys_setting.powe = txpkt->powe;
+				phys_setting.sf   = txpkt->sf;
+				phys_setting.bw   = txpkt->bw;
+				phys_setting.codr = txpkt->codr;
+				phys_setting.prea = txpkt->prea;
+				phys_setting.crc  = txpkt->ncrc;
+				phys_setting.iiq  = txpkt->ipol;
+				lrmac_apply_setting(channel, &phys_setting);
+
+				lrmac_macpkt_t sendpacket;
+				sendpacket.channel = channel;
+				sendpacket.payload_size = txpkt->size;
+				base64_decode(txpkt->data, txpkt->size, sendpacket.payload);
+				lrmac_forward_downlink(&sendpacket);
+
+				lrmac_restore_default_setting(channel);
+			}
+			else{ /** Schedule down link*/
+				LOG_WARN(TAG, "Forward down link with schedule");
+			}
 		}
 
 		udpsem_send_tx_ack(&pgtw->udpsemtech, ack_error);
+		free(downlink_pkt);
 	}
 }
 
@@ -270,23 +279,17 @@ static void lrwgw_udpsemtech_event_handler(udpsem_t *pudp, udpsem_event_t event,
 			LOG_EVENT(TAG, "Sent gateway status");
 		break;
 		case UDPSEM_EVENTID_SENT_DATA:
-			LOG_EVENT(TAG, "Sent data");
+			LOG_EVENT(TAG, "Sent uplink message");
 		break;
 		case UDPSEM_EVENTID_RECV_DATA:
-			LOG_ERROR(TAG, "Received data");
+			LOG_EVENT(TAG, "Received downlink message");
 		break;
 		case UDPSEM_EVENTID_KEEPALIVE:
-			LOG_EVENT(TAG, "Keep alive");
+			LOG_EVENT(TAG, "Keep alive connection, free heap = %lubytes", dev_get_free_heap_size());
 		break;
 		default:
 		break;
 	};
-	if(event.data != NULL) {
-		LOG_WARN(TAG, "UdpSemtech data: %s, eventid: %d", (char *)((char *)event.data+LRWGW_HEADER_LENGTH), event.eventid);
-		if(event.eventid != UDPSEM_EVENTID_SENT_STATE && event.eventid != UDPSEM_EVENTID_SENT_DATA && event.eventid != UDPSEM_EVENTID_SENT_ACK){
-			free(event.data);
-		}
-	}
 }
 
 

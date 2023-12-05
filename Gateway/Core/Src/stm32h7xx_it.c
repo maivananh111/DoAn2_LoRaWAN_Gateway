@@ -74,7 +74,7 @@ void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
 	LOG_ERROR(Inter_TAG,
-			"NonMaskable interrupt was handle(call NMI_Handler)...");
+			"NonMaskable interrupt was unhandle(call NMI_Handler)...");
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
   while (1)
@@ -90,7 +90,7 @@ void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
 	LOG_ERROR(Excep_TAG,
-			"Hard fault exception was handle(call HardFault_Handler)...");
+			"Hard fault exception was unhandle(call HardFault_Handler)...");
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -106,7 +106,7 @@ void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
 	LOG_ERROR(Excep_TAG,
-			"Memory management interrupt was handle(call MemManage_Handler)...");
+			"Memory management interrupt was unhandle(call MemManage_Handler)...");
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -122,7 +122,7 @@ void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
 	LOG_ERROR(Excep_TAG,
-			"Bus fault exception was handle(call BusFault_Handler)...");
+			"Bus fault exception was unhandle(call BusFault_Handler)...");
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -138,7 +138,7 @@ void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
 	LOG_ERROR(Excep_TAG,
-			"Usage fault exception was handle(call UsageFault_Handler)...");
+			"Usage fault exception was unhandle(call UsageFault_Handler)...");
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -154,7 +154,7 @@ void DebugMon_Handler(void)
 {
   /* USER CODE BEGIN DebugMonitor_IRQn 0 */
 	LOG_ERROR(Inter_TAG,
-			"Debug monitor interrupt was handle(call DebugMon_Handler)...");
+			"Debug monitor interrupt was unhandle(call DebugMon_Handler)...");
   /* USER CODE END DebugMonitor_IRQn 0 */
   /* USER CODE BEGIN DebugMonitor_IRQn 1 */
 

@@ -22,7 +22,7 @@
 #include "lwipopts.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
-#include <lwip/netdb.h>
+#include "lwip/netdb.h"
 #include "lwip/apps/sntp_opts.h"
 #include "lwip/apps/sntp.h"
 
@@ -30,6 +30,7 @@
 
 
 using json = nlohmann::json;
+using string = std::string;
 
 static const char *TAG = "LoRaWAN";
 
@@ -46,15 +47,13 @@ static int   udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t
 static int   udpsem_add_txpk_ack_feild(udpsem_t *pudp, uint16_t index, const char *error);
 static const char *udpsem_enum_to_error_str(udpsem_txpk_ack_error_t error);
 
-static bool  udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt);
 
 
 
-void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info){
+void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info, QueueHandle_t *pqueue){
 	pudp->server_info = server_info;
-	pudp->gtw_info = gtw_info;
-
-	pudp->queue_pull_resp  = xQueueCreate(LRWGW_PHYS_TXPKT_QUEUE_SIZE, sizeof(uint8_t *));
+	pudp->gtw_info    = gtw_info;
+	pudp->pqueue_resp = pqueue;
 }
 
 err_t udpsem_connect(udpsem_t *pudp){
@@ -150,7 +149,6 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
     pudp->req_buffer[index] = '}';
     pudp->req_buffer[index+1] = 0;
 
-//    LOG_WARN(TAG, "%s", (char *)(pudp->req_buffer + LRWGW_HEADER_LENGTH));
 
 	err_t ret = udpsem_send(pudp, pudp->req_buffer, index+1);
 	if(ret == ERR_OK){
@@ -159,13 +157,13 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
 				.eventid = UDPSEM_EVENTID_SENT_DATA,
 				.version = (udpsem_protocol_version_t)pudp->server_info->udpver,
 				.token   = (uint16_t)((pudp->req_buffer[1]<<8) | pudp->req_buffer[2]),
-				.data    = (void *)(pudp->req_buffer),
+				.data    = (void *)pudp->req_buffer,
 			};
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
 		pudp->txnb++;
 	}
-	pudp->ackr = ((float)pudp->ackn / (float)pudp->txnb) / 100.0;
+	pudp->ackr = ((double)pudp->ackn / (double)pudp->txnb) / 100.0;
 
 	return ERR_OK;
 }
@@ -188,7 +186,7 @@ err_t udpsem_send_stat(udpsem_t *pudp){
 				.eventid = UDPSEM_EVENTID_SENT_STATE,
 				.version = (udpsem_protocol_version_t)pudp->server_info->udpver,
 				.token   = (uint16_t)((pudp->req_buffer[1]<<8) | pudp->req_buffer[2]),
-				.data    = (void *)(pudp->req_buffer),
+				.data    = (void *)pudp->req_buffer,
 			};
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
@@ -211,7 +209,7 @@ err_t udpsem_keepalive(udpsem_t *pudp){
 				.eventid = UDPSEM_EVENTID_KEEPALIVE,
 				.version = (udpsem_protocol_version_t)pudp->server_info->udpver,
 				.token   = (uint16_t)((pudp->req_buffer[1]<<8) | pudp->req_buffer[2]),
-				.data    = NULL,
+				.data    = (void *)pudp->req_buffer,
 			};
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
@@ -239,7 +237,7 @@ err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error){
 				.eventid = UDPSEM_EVENTID_SENT_ACK,
 				.version = (udpsem_protocol_version_t)pudp->server_info->udpver,
 				.token   = (uint16_t)((pudp->req_buffer[1]<<8) | pudp->req_buffer[2]),
-				.data    = (void *)(pudp->req_buffer),
+				.data    = (void *)pudp->req_buffer,
 			};
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
@@ -249,18 +247,54 @@ err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error){
 	return ERR_OK;
 }
 
-uint8_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt){
+BaseType_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt){
 	return (xPortIsInsideInterrupt())?
-			(uint8_t)xQueueReceiveFromISR(pudp->queue_pull_resp, &ptxpkt, NULL) :
-			(uint8_t)xQueueReceive(pudp->queue_pull_resp, &ptxpkt, 10);
+		    xQueueReceiveFromISR(*pudp->pqueue_resp, &ptxpkt, NULL) :
+			xQueueReceive(*pudp->pqueue_resp, &ptxpkt, 10);
 }
 
-bool udpsem_is_modu_lora(udpsem_txpk_t *ptxpkt){
-	if(strcmp(ptxpkt->modu, "LORA") == 0) return true;
-	return false;
+udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t current_time){
+	/** Check frequency */
+	if(ptxpkt->freq < LRWGW_FREQ_MIN || ptxpkt->freq > LRWGW_FREQ_MAX){
+		LOG_DEBUG(TAG, "Down link invalid frequency");
+		return UDPSEM_ERROR_TX_FREQ;
+	}
+	/** Check power */
+	if(ptxpkt->powe < LRWGW_POWER_MIN || ptxpkt->powe > LRWGW_POWER_MAX){
+		LOG_DEBUG(TAG, "Down link invalid tx power");
+		return UDPSEM_ERROR_TX_POWER;
+	}
+	/** Check response time */
+	if(ptxpkt->tmst < current_time){
+		LOG_DEBUG(TAG, "Down link message too early");
+		return UDPSEM_ERROR_TOO_EARLY;
+	}
+	else{
+		LOG_DEBUG(TAG, "Down link message to late");
+		return UDPSEM_ERROR_TOO_LATE;
+	}
+
+	return UDPSEM_ERROR_NONE;
 }
 
+uint32_t udpsem_get_ntp_gps_time(void){
+	struct timeval ntp_time;
+	uint64_t gps_time;
+    uint32_t sec, us;
 
+    SNTP_GET_SYSTEM_TIME(sec, us);
+    ntp_time.tv_sec = sec;
+    ntp_time.tv_usec = us;
+    struct tm *utc = gmtime(&ntp_time.tv_sec);
+    struct tm gps_epoch = {
+		.tm_mday = 6,
+		.tm_mon = 0,
+		.tm_year = 1980 - 1900,
+	};
+	gps_time = (uint32_t)(mktime(utc) - mktime(&gps_epoch) + 18);
+
+	return gps_time;
+}
 
 
 static void udpsem_random_token(udpsem_t *pudp){
@@ -289,49 +323,46 @@ static err_t udpsem_send(udpsem_t *pudp, uint8_t *buf, uint16_t len){
 
 static void udpsem_received_handler(void *arg, struct udp_pcb *pcb, struct pbuf *pbuf, const ip_addr_t *addr, u16_t port){
 	udpsem_t *pudp = (udpsem_t *)arg;
+	uint8_t *payload = NULL;
+	udpsem_event_t event;
 
     if(pbuf != NULL) {
-    	uint8_t *u8buf = (uint8_t *)pbuf->payload;
-    	udpsem_txpk_t *txpkt = NULL;
-    	udpsem_header_id_t header = (udpsem_header_id_t)u8buf[3];
+    	payload = (uint8_t *)malloc(pbuf->len * sizeof(uint8_t) + 1);
+    	if(payload == NULL){
+    		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
+    		pbuf_free(pbuf);
+    		return;
+    	}
+    	memcpy(payload, (uint8_t *)pbuf->payload, pbuf->len);
+    	payload[pbuf->len] = 0;
 
-    	udpsem_event_t event = {
-        	.version = (udpsem_protocol_version_t)u8buf[0],
-			.token   = (uint16_t)((u8buf[1]<<8) | u8buf[2]),
-			.data    = NULL,
-        };
+    	event.version = (udpsem_protocol_version_t)payload[0];
+		event.token   = (uint16_t)((payload[1]<<8) | payload[2]);
+		event.data = pbuf->payload;
 
-
-    	switch(header){
+    	switch((udpsem_header_id_t)payload[3]){
     		case UDPSEM_HEADERID_PUSH_ACK:
     			event.eventid = UDPSEM_EVENTID_RECV_ACK;
     			pudp->ackn++;
-    			event.data = NULL;
 			break;
 
     		case UDPSEM_HEADERID_PULL_ACK:
     			event.eventid = UDPSEM_EVENTID_RECV_ACK;
-    			event.data = NULL;
 			break;
 
-    		case UDPSEM_HEADERID_PULL_PESP:
-    			txpkt = (udpsem_txpk_t *)malloc(sizeof(udpsem_txpk_t));
-    			if(txpkt == NULL){
-    				LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
-    				return;
-    			}
-    			if(udpsem_parse_pull_resp(u8buf, txpkt) == false) return;
-
-    			if((xPortIsInsideInterrupt())?
-    					xQueueSendFromISR(pudp->queue_pull_resp, &txpkt, NULL):
-						xQueueSend(pudp->queue_pull_resp, &txpkt, 10) == pdFALSE){
-    				LOG_ERROR(TAG, "Queue exhausted, send to queue fail at %s -> %d", __FUNCTION__, __LINE__);
-    			}
-
-    			event.eventid = UDPSEM_EVENTID_RECV_DATA;
-    			event.data    = (void *)u8buf,
+    		case UDPSEM_HEADERID_PULL_PESP:{
     			pudp->dwnb++;
     			pudp->txack_token = event.token;
+    			event.eventid = UDPSEM_EVENTID_RECV_DATA;
+
+    			uint8_t *payload_json = (uint8_t *)(payload + 4);
+
+    			if((xPortIsInsideInterrupt())?
+    					xQueueSendFromISR(*pudp->pqueue_resp, &payload_json, NULL):
+						xQueueSend(*pudp->pqueue_resp, &payload_json, 10) == pdFALSE){
+    				LOG_ERROR(TAG, "Queue full, send to queue fail at %s -> %d", __FUNCTION__, __LINE__);
+    			}
+    		}
 			break;
 
     		default:
@@ -339,8 +370,8 @@ static void udpsem_received_handler(void *arg, struct udp_pcb *pcb, struct pbuf 
     		break;
     	};
 
-        pbuf_free(pbuf);
     	pudp->event_handler(pudp, event, pudp->event_parameter);
+    	pbuf_free(pbuf);
     }
 }
 
@@ -379,13 +410,15 @@ static void  udpsem_set_timestamp(udpsem_t *pudp){
     struct tm *utc = gmtime(&ntpTime.tv_sec);
     time_t utc_time = mktime(utc) + LRWGW_TIME_UTC_OFFSET_SEC;
     strftime(pudp->utc_time, sizeof pudp->utc_time, "%F %T %Z", gmtime(&utc_time));
+
     /** Convert to GPS time */
     struct tm gps_epoch = {
 		.tm_mday = 6,
 		.tm_mon = 0,
 		.tm_year = 1980 - 1900,
     };
-    pudp->gps_time = (uint64_t)(mktime(utc) - mktime(&gps_epoch) + 18);
+
+    pudp->gps_time = (uint32_t)(mktime(utc) - mktime(&gps_epoch) + 18);
 }
 
 static int udpsem_add_stat_feild(udpsem_t *pudp, uint16_t index){
@@ -483,7 +516,7 @@ static int udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t *
 				"\"lsnr\":%d,"\
 				"\"size\":%d,"\
 				"\"data\":\"%s\","\
-				"\"tmst\":%llu"\
+				"\"tmst\":%lu"\
 			"}"\
 		"]",
 		pkt->channel,
@@ -496,7 +529,7 @@ static int udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t *
 		pkt->snr,
 		pkt->size,
 		base64_out,
-		pudp->gps_time
+		(uint32_t)pudp->gps_time
 	);
 
 	free(base64_out);
@@ -540,36 +573,42 @@ static const char *udpsem_enum_to_error_str(udpsem_txpk_ack_error_t error){
 
 
 
-static bool udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt){
-	std::string datr = "";
-	std::string modu = "";
-	std::string data = "";
+bool udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt){
 	uint8_t modu_len = 0;
 	uint8_t data_len = 0;
+	json txpk_json;
+	json jsonData;
 
 
-	json jsonData = json::parse(buffer);
+	jsonData = json::parse(buffer);
     if (jsonData.is_discarded()) {
         LOG_ERROR(TAG, "Error parse JSON data");
         return false;
     }
 
+    if(jsonData.find("txpk") != jsonData.end()) txpk_json = jsonData["txpk"];
+    else{
+    	LOG_ERROR(TAG, "Invalid json data format");
+    	return false;
+    }
 
-	txpkt->imme = (jsonData.find("imme") != jsonData.end())? (bool)       jsonData["imme"]:false;
-	txpkt->tmst = (jsonData.find("tmst") != jsonData.end())? (uint32_t)   jsonData["tmst"]:0;
-	txpkt->tmms = (jsonData.find("tmms") != jsonData.end())? (uint32_t)   jsonData["tmms"]:0;
-	txpkt->rfch = (jsonData.find("rfch") != jsonData.end())? (uint16_t)   jsonData["rfch"]:0;
-	txpkt->freq = (jsonData.find("freq") != jsonData.end())? (float)      jsonData["freq"]:0.0;
-	txpkt->powe = (jsonData.find("powe") != jsonData.end())? (uint8_t)    jsonData["powe"]:14;
-	modu        = (jsonData.find("modu") != jsonData.end())? (std::string)jsonData["modu"]:"LORA";
-	datr        = (jsonData.find("datr") != jsonData.end())? (std::string)jsonData["datr"]:"SF7BW125";
-	txpkt->codr = (jsonData.find("codr") != jsonData.end())? (uint8_t)    jsonData["codr"]:5;
-	txpkt->prea = (jsonData.find("prea") != jsonData.end())? (uint32_t)   jsonData["prea"]:8;
-	txpkt->fdev = (jsonData.find("fdev") != jsonData.end())? (uint32_t)   jsonData["fdev"]:0;
-	txpkt->ipol = (jsonData.find("ipol") != jsonData.end())? (bool)       jsonData["ipol"]:false;
-	txpkt->ncrc = (jsonData.find("ncrc") != jsonData.end())? (bool)       jsonData["ncrc"]:false;
-	data        =                                            (std::string)jsonData["data"];
-	txpkt->size =                                            (uint8_t)    jsonData["size"];
+	txpkt->imme = (txpk_json.find("imme") != txpk_json.end())? (bool)       txpk_json["imme"]:false;
+	txpkt->tmst = (txpk_json.find("tmst") != txpk_json.end())? (uint32_t)   txpk_json["tmst"]:0;
+	txpkt->tmms = (txpk_json.find("tmms") != txpk_json.end())? (uint32_t)   txpk_json["tmms"]:0;
+	txpkt->rfch = (txpk_json.find("rfch") != txpk_json.end())? (uint16_t)   txpk_json["rfch"]:0;
+	txpkt->freq = (txpk_json.find("freq") != txpk_json.end())? (double)     txpk_json["freq"]:0.0;
+	txpkt->powe = (txpk_json.find("powe") != txpk_json.end())? (uint8_t)    txpk_json["powe"]:14;
+	string modu = (txpk_json.find("modu") != txpk_json.end())? (string)     txpk_json["modu"]:"LORA";
+	string datr = (txpk_json.find("datr") != txpk_json.end())? (string)     txpk_json["datr"]:"SF7BW125";
+	string codr = (txpk_json.find("codr") != txpk_json.end())? (string)     txpk_json["codr"]:"";
+	txpkt->prea = (txpk_json.find("prea") != txpk_json.end())? (uint32_t)   txpk_json["prea"]:8;
+	txpkt->fdev = (txpk_json.find("fdev") != txpk_json.end())? (uint32_t)   txpk_json["fdev"]:0;
+	txpkt->ipol = (txpk_json.find("ipol") != txpk_json.end())? (bool)       txpk_json["ipol"]:false;
+	txpkt->ncrc = (txpk_json.find("ncrc") != txpk_json.end())? (bool)       txpk_json["ncrc"]:false;
+	string data = (txpk_json.find("data") != txpk_json.end())? (string)     txpk_json["data"]:" ";
+	txpkt->size = (txpk_json.find("size") != txpk_json.end())? (uint8_t)    txpk_json["size"]:0;
+
+	sscanf(codr.c_str(), "4/%hhu", &txpkt->codr);
 
 	modu_len = strlen((char *)modu.c_str());
 	txpkt->modu = (char *)malloc(modu_len * sizeof(char) + 1);
@@ -581,7 +620,7 @@ static bool udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt){
 	memcpy(txpkt->data, (char *)data.c_str(), data_len);
 	txpkt->data[data_len] = 0;
 
-	sscanf(datr.c_str(), "SF%hhuBW%hu", &txpkt->sf, &txpkt->bw);
+	sscanf(datr.c_str(), "SF%hhuBW%d", &txpkt->sf, &txpkt->bw);
 
 	return true;
 }

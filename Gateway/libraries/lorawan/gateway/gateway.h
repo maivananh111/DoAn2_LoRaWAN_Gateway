@@ -60,8 +60,6 @@ void lorawan_gateway_process(lorawan_gateway_t *pgtw);
 
 
 
-
-
 #ifdef __cplusplus
 }
 #endif

@@ -137,6 +137,7 @@
 #define SNTP_UPDATE_DELAY           	  15000
 #define SNTP_SET_SYSTEM_TIME_US(sec, us)  (sntp_set_system_time(sec, us))
 #define SNTP_GET_SYSTEM_TIME(sec, us)     (sntp_get_system_time(&(sec), &(us)))
+
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

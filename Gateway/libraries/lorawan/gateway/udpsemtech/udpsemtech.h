@@ -101,8 +101,8 @@ typedef struct{
 	/** Gateway identify */
 	uint64_t   id           = LRWGW_DEFAULT_ID;
 	/** Coordinate */
-    float      latitude;
-    float      longitude;
+    double      latitude;
+    double      longitude;
     int        altitude;
 	/** Information*/
 	const char *platform    = LRWGW_DEFAULT_PLATFORM;
@@ -125,7 +125,7 @@ struct udpsem_handler{
 	udpsem_event_handler_f event_handler = NULL;
 	void *event_parameter = NULL;
 
-	QueueHandle_t queue_pull_resp;
+	QueueHandle_t *pqueue_resp;
 
 	struct udp_pcb *udp;
 	ip_addr_t ttn_server_ip;
@@ -139,12 +139,12 @@ struct udpsem_handler{
 
 	uint8_t  req_buffer[LRWGW_BUFFER_SIZE];
 	char     utc_time[40];
-	uint64_t gps_time;
+	uint32_t gps_time;
 
 	uint32_t rxnb; //| number | Number of radio packets received (unsigned integer)
 	uint32_t rxok; //| number | Number of radio packets received with a valid PHY CRC
 	uint32_t rxfw; //| number | Number of radio packets forwarded (unsigned integer)
-	float    ackr; //| number | Percentage of upstream datagrams that were acknowledged
+	double    ackr; //| number | Percentage of upstream datagrams that were acknowledged
 	uint32_t dwnb; //| number | Number of downlink datagrams received (unsigned integer)
 	uint32_t txnb; //| number | Number of packets emitted (unsigned integer)
 
@@ -155,7 +155,7 @@ struct udpsem_handler{
 typedef struct{
 	uint8_t  channel 	  = 0;
 	uint16_t rf_chain 	  = 0;
-	float    freq 		  = 923.00000;
+	double   freq 		  = 923.00000;
 	int8_t   crc_stat 	  = 1;
 	uint8_t  sf 		  = 7;
 	uint16_t bw 		  = 125;
@@ -172,7 +172,7 @@ typedef struct{
 	uint32_t tmst         = 0;//
 	uint32_t tmms         = 0;//
 	uint16_t rfch 	      = 0;//
-	float    freq 		  = 923.00000;//
+	double    freq 		  = 923.00000;//
 	uint8_t  powe         = 20;//
 	char     *modu        = (char *)"LORA";//
 	uint8_t  sf 		  = 7;//
@@ -187,21 +187,22 @@ typedef struct{
 } udpsem_txpk_t;
 
 
-void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info);
+void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info, QueueHandle_t *pqueue);
 
 err_t udpsem_connect(udpsem_t *pudp);
 err_t udpsem_disconnect(udpsem_t *pudp);
 
 void udpsem_register_event_handler(udpsem_t *pudp, udpsem_event_handler_f event_handler_function, void *param);
 
-uint8_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt);
-
 err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat);
 err_t udpsem_send_stat(udpsem_t *pudp);
 err_t udpsem_keepalive(udpsem_t *pudp);
 err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error);
 
-bool udpsem_is_modu_lora(udpsem_txpk_t *ptxpkt);
+BaseType_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt);
+bool  udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt);
+udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t current_time);
+uint32_t udpsem_get_ntp_gps_time(void);
 
 
 #ifdef __cplusplus
