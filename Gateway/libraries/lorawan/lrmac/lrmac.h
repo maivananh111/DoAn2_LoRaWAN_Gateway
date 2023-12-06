@@ -21,7 +21,7 @@ typedef struct{
 	lrphys_eventid_t eventid      = LRPHYS_ERROR_CRC;
 	uint8_t          *payload     = NULL;
 	uint8_t          payload_size = 0;
-} lrmac_macpkt_t;
+} lrmac_packet_t;
 
 typedef struct{
 	long freq;
@@ -54,7 +54,7 @@ uint8_t lrmac_get_channel_by_freq(long freq);
 void lrmac_apply_setting(uint8_t channel, lrmac_phys_setting_t *phys_settings);
 void lrmac_restore_default_setting(uint8_t channel);
 
-void lrmac_forward_downlink(lrmac_macpkt_t *pkt);
+void lrmac_send_packet(lrmac_packet_t *pkt);
 
 
 #ifdef __cplusplus

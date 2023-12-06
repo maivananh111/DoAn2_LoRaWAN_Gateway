@@ -1,4 +1,3 @@
-
 /**
  * @file
  * SNTP client API

@@ -57,17 +57,41 @@ void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
+
   if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != 0x2801)
   {
-    // Clear Backup registor : recover to current RTC information
+	    /** Initialize RTC and set the Time and Date
+	    */
+	    sTime.Hours = 14;
+	    sTime.Minutes = 0;
+	    sTime.Seconds = 2;
+	    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+	    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+	    {
+	      Error_Handler();
+	    }
+	    sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+	    sDate.Month = RTC_MONTH_DECEMBER;
+	    sDate.Date = 1;
+	    sDate.Year = 23;
 
-    // Write a data in ad RTC Backup data register
+	    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+	    {
+	      Error_Handler();
+	    }
     HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, 0x2801);
+  }
+  else{
+    // Only read time and date
+    HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
   }
   /* USER CODE END Check_RTC_BKUP */
 
-  /** Initialize RTC and set the Time and Date
-  */
+//  /** Initialize RTC and set the Time and Date
+//  */
 //  sTime.Hours = 12;
 //  sTime.Minutes = 0;
 //  sTime.Seconds = 1;
@@ -105,7 +129,7 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef* rtcHandle)
   /** Initializes the peripherals clock
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
-    PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
+    PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
     {
       Error_Handler();

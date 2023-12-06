@@ -18,8 +18,6 @@
 #include "lorawan/gateway/gateway.h"
 #include "lorawan/base64/base64.h"
 
-#include "json/json.hpp"
-
 #include "lwipopts.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
@@ -28,36 +26,55 @@
 #include "lwip/apps/sntp.h"
 
 
-using json = nlohmann::json;
+
+
+
+typedef struct{
+	uint8_t              channel = 0;
+	bool 				 immediately = false;
+	lrmac_phys_setting_t *setting;
+	lrmac_packet_t       *packet;
+} schedule_item_t;
 
 static const char *TAG = "LoRaWAN";
 
-__IO QueueHandle_t queue_uplink;
-__IO QueueHandle_t queue_downlink;
+static QueueHandle_t queue_rxpkt;
+static QueueHandle_t queue_txpkt;
+static QueueHandle_t queue_sched;
+
+static TaskHandle_t htask_forward_uplink = NULL;
+static TaskHandle_t htask_handle_downlink = NULL;
+static TaskHandle_t htask_keepalive = NULL;
+static TaskHandle_t htask_send_status = NULL;
+static TaskHandle_t htask_schedule_downlink = NULL;
+
 
 /**
  * Function prototype.
  */
-static void lrwgw_send_status(lorawan_gateway_t *pgtw);
-static void lrwgw_keepalive(lorawan_gateway_t *pgtw);
-static void lrwgw_forward_upllink(lorawan_gateway_t *pgtw);
-static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw);
+static void lrwgw_handle_rxpkt(lorawan_gateway_t *pgtw);
+static void lrwgw_handle_txpkt(lorawan_gateway_t *pgtw);
 
 static void lrwgw_udpsemtech_event_handler(udpsem_t *phander, udpsem_event_t event, void *param);
+
+static void lrwgw_task_forward_uplink(void *pgtw);
+static void lrwgw_task_handle_downlink(void *pgtw);
+static void lrwgw_task_schedule_downlink(void *pgtw);
+static void lrwgw_task_keepalive(void *pgtw);
+static void lrwgw_task_send_status(void *pgtw);
 
 
 /**
  * Function declaration.
  */
-
-
 void lorawan_gateway_initialize(lorawan_gateway_t *pgtw){
-	queue_uplink = xQueueCreate(LRWGW_PHYS_RXPKT_QUEUE_SIZE, sizeof(uint32_t));
-	queue_downlink = xQueueCreate(LRWGW_PHYS_TXPKT_QUEUE_SIZE, sizeof(uint32_t));
+	queue_rxpkt = xQueueCreate(LRWGW_PHYS_RXPKT_QUEUE_SIZE, sizeof(uint32_t));
+	queue_txpkt = xQueueCreate(LRWGW_PHYS_TXPKT_QUEUE_SIZE, sizeof(uint32_t));
+	queue_sched = xQueueCreate(LRWGW_PHYS_TXPKT_QUEUE_SIZE, sizeof(schedule_item_t *));
 
-	lrmac_initialize((QueueHandle_t *)&queue_uplink);
+	lrmac_initialize(&queue_rxpkt);
 
-	udpsem_initialize(&pgtw->udpsemtech, &pgtw->server_info, &pgtw->gateway_info, (QueueHandle_t *)&queue_downlink);
+	udpsem_initialize(&pgtw->udpsemtech, &pgtw->server_info, &pgtw->gateway_info, &queue_txpkt);
 	udpsem_register_event_handler(&pgtw->udpsemtech, lrwgw_udpsemtech_event_handler, NULL);
 }
 
@@ -84,72 +101,50 @@ void lorawan_gateway_set_coordinate(lorawan_gateway_t *pgtw, float latitude, flo
 
 err_t lorawan_gateway_start(lorawan_gateway_t *pgtw){
 	err_t ret = udpsem_connect(&pgtw->udpsemtech);
-    /** Init time */
-	pgtw->lstat = HAL_GetTick();
-	pgtw->lpull = HAL_GetTick();
+	if(ret != ERR_OK) return ret;
 
 	udpsem_keepalive(&pgtw->udpsemtech);
+
+//	if(htask_send_status != NULL) vTaskResume(htask_send_status);
+//	else
+	xTaskCreate(lrwgw_task_send_status,       "lrwgw_task_send_status",      4096/4,  (void *)pgtw, 5,  &htask_send_status);
+
+//	if(htask_keepalive   != NULL) vTaskResume(htask_keepalive);
+//	else
+	xTaskCreate(lrwgw_task_keepalive,         "lrwgw_task_keepalive",        4096/4,  (void *)pgtw, 4,  &htask_keepalive);
+
+//	(htask_forward_uplink != NULL)?
+//			vTaskResume(htask_forward_uplink):
+	xTaskCreate(lrwgw_task_forward_uplink,    "lrwgw_task_forward_uplink",   10240/4, (void *)pgtw, 6,  &htask_forward_uplink);
+//
+//	(htask_handle_downlink != NULL)?
+//			vTaskResume(htask_handle_downlink):
+	xTaskCreate(lrwgw_task_handle_downlink,   "lrwgw_task_handle_downlink",  20480/4, (void *)pgtw, 10, &htask_handle_downlink);
+//
+//	(htask_schedule_downlink != NULL)?
+//			vTaskResume(htask_schedule_downlink):
+	xTaskCreate(lrwgw_task_schedule_downlink, "lrwgw_task_forward_downlink", 4096/4,  (void *)pgtw, 8,  &htask_schedule_downlink);
 
 	return ret;
 }
 
 void lorawan_gateway_stop(lorawan_gateway_t *pgtw){
+	if(htask_send_status != NULL)       vTaskSuspend(htask_send_status);
+	if(htask_keepalive != NULL) 		vTaskSuspend(htask_keepalive);
+	if(htask_forward_uplink != NULL) 	vTaskSuspend(htask_forward_uplink);
+	if(htask_handle_downlink != NULL)   vTaskSuspend(htask_handle_downlink);
+	if(htask_schedule_downlink != NULL) vTaskSuspend(htask_schedule_downlink);
+
 	udpsem_disconnect(&pgtw->udpsemtech);
 }
 
 
 
-void lorawan_gateway_process(lorawan_gateway_t *pgtw){
-	/**
-	 * Send gateway status.
-	 */
-	lrwgw_send_status(pgtw);
 
-	/**
-	 * Send pull request to keep connection.
-	 */
-	lrwgw_keepalive(pgtw);
+static void lrwgw_handle_rxpkt(lorawan_gateway_t *pgtw){
+	lrmac_packet_t *macpkt;
 
-	/**
-	 * Forward uplink packe.
-	 */
-	lrwgw_forward_upllink(pgtw);
-
-	/**
-	 * Process the txpk form udp semtech event.
-	 */
-	lrwgw_handle_udp_txpkt(pgtw);
-
-	/**
-	 * Delay for ignore watchdog timer.
-	 */
-	vTaskDelay(1);
-}
-
-
-
-
-
-
-/** Static function */
-static void lrwgw_send_status(lorawan_gateway_t *pgtw){
-	if((HAL_GetTick() - pgtw->lstat) > (LRWGW_STAT_INTERVAL*1000UL)){
-		udpsem_send_stat(&pgtw->udpsemtech);
-		pgtw->lstat = HAL_GetTick();
-	}
-}
-
-static void lrwgw_keepalive(lorawan_gateway_t *pgtw){
-	if((HAL_GetTick() - pgtw->lpull) > (LRWGW_KEEP_ALIVE*1000UL)){
-		udpsem_keepalive(&pgtw->udpsemtech);
-		pgtw->lpull = HAL_GetTick();
-	}
-}
-
-void lrwgw_forward_upllink(lorawan_gateway_t *pgtw){
-	__IO lrmac_macpkt_t *macpkt;
-
-	if(xQueueReceive(queue_uplink, (void *)&macpkt, 10) == pdTRUE){
+	if(xQueueReceive(queue_rxpkt, (void *)&macpkt, 10) == pdTRUE){
 		if(macpkt != NULL){
 			/** Increment rx packet counter */
 			switch(macpkt->eventid){
@@ -187,7 +182,7 @@ void lrwgw_forward_upllink(lorawan_gateway_t *pgtw){
 				udpsem_push_data(&pgtw->udpsemtech, &rxpkt, 0);
 
 				free(macpkt->payload);
-				free((lrmac_macpkt_t *)macpkt);
+				free((lrmac_packet_t *)macpkt);
 
 				if(pgtw->event_handler)
 					pgtw->event_handler(pgtw, LORAWAN_GATEWAY_EVENT_UPLINK, pgtw->event_parameter);
@@ -199,10 +194,10 @@ void lrwgw_forward_upllink(lorawan_gateway_t *pgtw){
 	}
 }
 
-static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw){
+static void lrwgw_handle_txpkt(lorawan_gateway_t *pgtw){
 	uint8_t *downlink_pkt = NULL;
 
-	if(xQueueReceive(queue_downlink, &downlink_pkt, 10) == pdTRUE){
+	if(xQueueReceive(queue_txpkt, &downlink_pkt, 10) == pdTRUE){
 		udpsem_txpk_t *txpkt = NULL;
 		udpsem_txpk_ack_error_t ack_error = UDPSEM_ERROR_NONE;
 		uint8_t channel = 0;
@@ -220,14 +215,19 @@ static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw){
     		return;
 		}
 
-		if(udpsem_parse_pull_resp(downlink_pkt, txpkt) == false){
+		char *jsondata = (char *)(downlink_pkt + 4U);
+		if(udpsem_parse_pull_resp(jsondata, txpkt) == false){
     		LOG_ERROR(TAG, "Json format error at %s -> %d", __FUNCTION__, __LINE__);
+    		free(txpkt);
     		free(downlink_pkt);
     		return;
 		}
 
-		gps_time = udpsem_get_ntp_gps_time();
+		gps_time  = udpsem_get_ntp_gps_time();
+		ack_error = udpsem_check_error(txpkt, gps_time);
+		channel   = lrmac_get_channel_by_freq((long)(txpkt->freq * 1E6));
 
+		LOG_MEM(TAG, "Channel         : %d", channel);
 		LOG_MEM(TAG, "Modulation      : %s", txpkt->modu);
 		LOG_MEM(TAG, "Frequency       : %f", txpkt->freq);
 		LOG_MEM(TAG, "Spreading Factor: %d", txpkt->sf);
@@ -236,37 +236,54 @@ static void lrwgw_handle_udp_txpkt(lorawan_gateway_t *pgtw){
 		LOG_MEM(TAG, "Preamble length : %d", txpkt->prea);
 		LOG_MEM(TAG, "Power           : %d", txpkt->powe);
 
-		ack_error = udpsem_check_error(txpkt, gps_time);
-		channel = lrmac_get_channel_by_freq((long)(txpkt->freq * 1E6));
 		if(ack_error != UDPSEM_ERROR_TX_FREQ && ack_error != UDPSEM_ERROR_TX_POWER){
-			if(txpkt->imme == true){ /** forward immediately */
-				LOG_WARN(TAG, "Forward down link immediately");
-				lrmac_phys_setting_t phys_setting;
-				phys_setting.freq = (long)(txpkt->freq * 1E6);
-				phys_setting.powe = txpkt->powe;
-				phys_setting.sf   = txpkt->sf;
-				phys_setting.bw   = txpkt->bw;
-				phys_setting.codr = txpkt->codr;
-				phys_setting.prea = txpkt->prea;
-				phys_setting.crc  = txpkt->ncrc;
-				phys_setting.iiq  = txpkt->ipol;
-				lrmac_apply_setting(channel, &phys_setting);
+			lrmac_phys_setting_t *phys_setting  = (lrmac_phys_setting_t *)malloc(sizeof(lrmac_phys_setting_t));
+			lrmac_packet_t       *sendpacket    = (lrmac_packet_t *)malloc(sizeof(lrmac_packet_t));
+			schedule_item_t      *schedule_item = (schedule_item_t *)malloc(sizeof(schedule_item_t));
 
-				lrmac_macpkt_t sendpacket;
-				sendpacket.channel = channel;
-				sendpacket.payload_size = txpkt->size;
-				base64_decode(txpkt->data, txpkt->size, sendpacket.payload);
-				lrmac_forward_downlink(&sendpacket);
-
-				lrmac_restore_default_setting(channel);
+			if(phys_setting == NULL || sendpacket == NULL || schedule_item == NULL){
+	    		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
+	    		if(downlink_pkt != NULL) free(downlink_pkt);
+	    		if(txpkt != NULL) free(txpkt);
+	    		return;
 			}
-			else{ /** Schedule down link*/
-				LOG_WARN(TAG, "Forward down link with schedule");
+
+			phys_setting->freq = (long)(txpkt->freq * 1E6);
+			phys_setting->powe = txpkt->powe;
+			phys_setting->sf   = txpkt->sf;
+			phys_setting->bw   = txpkt->bw;
+			phys_setting->codr = txpkt->codr;
+			phys_setting->prea = txpkt->prea;
+			phys_setting->crc  = txpkt->ncrc;
+			phys_setting->iiq  = txpkt->ipol;
+
+			sendpacket->channel = channel;
+			sendpacket->payload_size = base64d_size(txpkt->size);
+			sendpacket->payload = (uint8_t *)malloc(strlen((char *)txpkt->data) + 4);
+			memset(sendpacket->payload, 0, strlen((char *)txpkt->data) + 4);
+			base64_decode(txpkt->data, txpkt->size, sendpacket->payload);
+
+			schedule_item->channel     = channel;
+			schedule_item->immediately = txpkt->imme;
+			schedule_item->packet      = sendpacket;
+			schedule_item->setting     = phys_setting;
+
+			if(xQueueSend(queue_sched, (void *)&schedule_item, 10) == pdFALSE){
+				LOG_ERROR(TAG, "Error queue full at %s -> %d", __FUNCTION__, __LINE__);
+
+				free(phys_setting);
+				free(sendpacket);
+				free(schedule_item);
+				if(downlink_pkt != NULL) free(downlink_pkt);
+				if(txpkt != NULL) free(txpkt);
+
+				return;
 			}
 		}
 
 		udpsem_send_tx_ack(&pgtw->udpsemtech, ack_error);
-		free(downlink_pkt);
+		if(txpkt != NULL)        free(txpkt);
+		if(downlink_pkt != NULL) free(downlink_pkt);
 	}
 }
 
@@ -293,6 +310,105 @@ static void lrwgw_udpsemtech_event_handler(udpsem_t *pudp, udpsem_event_t event,
 }
 
 
+
+/**
+ * Gateway task: lrwgw_task_forward_uplink.
+ * To Do: Forward uplink message from end device to server.
+ */
+static void lrwgw_task_forward_uplink(void *pgtw){
+	lorawan_gateway_t *gateway = (lorawan_gateway_t *)pgtw;
+
+	while(1){
+		/**
+		 * Process the rxpk form lora MAC.
+		 */
+		lrwgw_handle_rxpkt(gateway);
+	}
+}
+
+/**
+ * Gateway task: lrwgw_task_forward_downlink.
+ * To Do: Forward downlink message from server end device.
+ */
+static void lrwgw_task_handle_downlink(void *pgtw){
+	lorawan_gateway_t *gateway = (lorawan_gateway_t *)pgtw;
+
+	while(1){
+		/**
+		 * Process the txpk form udp semtech event.
+		 */
+		lrwgw_handle_txpkt(gateway);
+	}
+}
+
+/**
+ * Gateway task: lrwgw_task_schedule_downlink.
+ * To Do: Schedule and forward downlink message.
+ */
+static void lrwgw_task_schedule_downlink(void *pgtw){
+//	lorawan_gateway_t *gateway = (lorawan_gateway_t *)pgtw;
+	schedule_item_t *item = NULL;
+
+	while(1){
+		if(xQueueReceive(queue_sched, &item, 10) == pdTRUE){
+//			if(item->immediately == true){ /** forward immediately */
+				LOG_WARN(TAG, "Forward down link immediately");
+//				lrmac_apply_setting(item->channel, item->setting);
+				lrmac_send_packet(item->packet);
+//				lrmac_restore_default_setting(item->channel);
+
+				free(item->setting);
+				free(item->packet);
+				free(item);
+//			}
+//			else{ /** Schedule down link*/
+//				LOG_WARN(TAG, "Forward down link with schedule");
+//
+//
+//			}
+		}
+	}
+}
+
+/**
+ * Gateway task: lrwgw_task_keepalive.
+ * To Do: Keep alive connection with server.
+ */
+static void lrwgw_task_keepalive(void *pgtw){
+	lorawan_gateway_t *gateway = (lorawan_gateway_t *)pgtw;
+
+	while(1){
+		/**
+		 * Send pull request to keep connection.
+		 */
+		udpsem_keepalive(&gateway->udpsemtech);
+
+		/**
+		 * Keep alive interval, allow switch task to avoid watchdog reset.
+		 */
+		vTaskDelay(gateway->keepalive_interval * 1000UL);
+	}
+}
+
+/**
+ * Gateway task: lrwgw_task_send_status.
+ * To Do: Send gateway status message to server.
+ */
+static void lrwgw_task_send_status(void *pgtw){
+	lorawan_gateway_t *gateway = (lorawan_gateway_t *)pgtw;
+
+	while(1){
+		/**
+		 * Send status interval, allow switch task to avoid watchdog reset.
+		 */
+		vTaskDelay(gateway->stat_interval * 1000UL);
+
+		/**
+		 * Send gateway status.
+		 */
+		udpsem_send_stat(&gateway->udpsemtech);
+	}
+}
 
 
 

@@ -62,7 +62,8 @@ const osMessageQueueAttr_t myQueue01_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-
+static const char *TAG = "FREERTOS";
+extern void LOG_ERROR(const char *tag, const char *format, ...);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -96,6 +97,7 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
    /* Run time stack overflow checking is performed if
    configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
    called if a stack overflow is detected. */
+	LOG_ERROR(TAG, "Application Stack Overflow: %s", pcTaskName);
 }
 /* USER CODE END 4 */
 
@@ -112,6 +114,7 @@ void vApplicationMallocFailedHook(void)
    FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
    to query the size of free heap space that remains (although it does not
    provide information on how the remaining heap might be fragmented). */
+	LOG_ERROR(TAG, "Application Malloc Failed");
 }
 /* USER CODE END 5 */
 

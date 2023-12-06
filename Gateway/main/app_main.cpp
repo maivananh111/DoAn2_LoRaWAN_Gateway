@@ -7,6 +7,7 @@
 
 #include "gpio.h"
 #include "spi.h"
+#include "rtc.h"
 
 #include "stdio.h"
 #include "string.h"
@@ -36,6 +37,7 @@
 /**
  *
  */
+
 
 lrphys lora_ch0;
 lrphys_hwconfig_t lora_ch0_hw = {
@@ -68,6 +70,8 @@ lorawan_gateway_t gateway = {
 		.mail			  = "anh.iot1708@gmail.com",
 		.description      = "STM32 Gateway",
 	},
+	.stat_interval        = LRWGW_STAT_INTERVAL,
+	.keepalive_interval   = LRWGW_KEEP_ALIVE,
 };
 
 
@@ -76,10 +80,10 @@ lorawan_gateway_t gateway = {
  */
 void app_main(void){
 	ethernet_register_event_handler(ethernet_link_event_handler);
-	ethernet_init_link(5000);
+	ethernet_init_link(10000);
 
 	while(1){
-		vTaskDelay(500);
+		vTaskDelay(1000);
 	}
 }
 
@@ -94,12 +98,14 @@ void task_lorawan(void *){
 
 	lorawan_gateway_register_event_handler(&gateway, lorawan_gateway_event_handler, NULL);
 
-	lorawan_gateway_start(&gateway);
+	while(lorawan_gateway_start(&gateway) != ERR_OK){
+		LOG_ERROR("LoRaWAN gateway", "Fail to start gateway...");
+		vTaskDelay(1000);
+	}
 
 
 	while(1){
-		lorawan_gateway_process(&gateway);
-		vTaskDelay(10);
+		vTaskDelay(1000);
 	}
 }
 /**
@@ -125,16 +131,13 @@ void ethernet_link_event_handler(ethernet_event_t event){
 		break;
 		case ETHERNET_EVENT_GOTIP:
 			LOG_EVENT(TAG, "Ethernet event got IP");
-			xTaskCreate(task_lorawan, "task_lorawan", 65536/4, NULL, 10, NULL);
+			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
 		break;
 	}
 }
 
 extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	if(GPIO_Pin == ETH_LINK_INT_Pin){
-		LOG_EVENT("Ethernet", "Ethernet link interrupted");
-	}
-	else if(GPIO_Pin == LORA1_IO0_Pin){
+	if(GPIO_Pin == LORA1_IO0_Pin){
 		lora_ch0.IRQHandler();
 	}
 }

@@ -20,7 +20,7 @@ extern "C"{
 #include "lwip/etharp.h"
 
 
-#define ETHERNET_LINK_TASK_SIZE_KBYTE 1U
+#define ETHERNET_LINK_TASK_SIZE_KBYTE 4
 #define ETHERNET_LINK_TASK_PRIORITY   16
 
 typedef enum{

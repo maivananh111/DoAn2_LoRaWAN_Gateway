@@ -172,7 +172,7 @@ typedef struct{
 	uint32_t tmst         = 0;//
 	uint32_t tmms         = 0;//
 	uint16_t rfch 	      = 0;//
-	double    freq 		  = 923.00000;//
+	double   freq 		  = 923.00000;//
 	uint8_t  powe         = 20;//
 	char     *modu        = (char *)"LORA";//
 	uint8_t  sf 		  = 7;//
@@ -200,7 +200,7 @@ err_t udpsem_keepalive(udpsem_t *pudp);
 err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error);
 
 BaseType_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt);
-bool  udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt);
+bool  udpsem_parse_pull_resp(char *buffer, udpsem_txpk_t *txpkt);
 udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t current_time);
 uint32_t udpsem_get_ntp_gps_time(void);
 

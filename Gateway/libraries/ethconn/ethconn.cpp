@@ -23,7 +23,7 @@ extern ip4_addr_t ipaddr;
 extern ip4_addr_t netmask;
 extern ip4_addr_t gw;
 
-void (*link_handler)(ethernet_event_t) = NULL;
+static void (*link_handler)(ethernet_event_t) = NULL;
 
 
 static __IO uint32_t _waitIP_timeout = 0xFFFFFFFF;
@@ -113,6 +113,7 @@ static void show_ip_address(void){
 
 void ethernet_wait_ip_address(void){
 	__IO uint32_t tick = HAL_GetTick();
+
 	while(!dhcp_supplied_address(&gnetif)){
 		vTaskDelay(100);
 		if(HAL_GetTick() - tick > _waitIP_timeout){

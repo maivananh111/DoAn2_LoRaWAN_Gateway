@@ -18,7 +18,6 @@
 
 extern UART_HandleTypeDef huart8;
 
-extern "C" int _write(int file, char *ptr, int len);
 static void log_out(char *log);
 static void app_main_task(void *param);
 int edf_main_application(void);
@@ -49,11 +48,4 @@ static void log_out(char *log) {
 	HAL_UART_Transmit(&huart8, (uint8_t*) log, strlen(log), 1000);
 }
 
-extern "C" int _write(int file, char *ptr, int len) {
-	HAL_UART_Transmit(&huart8, (uint8_t*) ptr, len, 1000);
-
-	fflush(stdout);
-
-	return len;
-}
 

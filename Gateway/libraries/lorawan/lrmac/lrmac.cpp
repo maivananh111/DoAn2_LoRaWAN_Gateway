@@ -102,6 +102,7 @@ void lrmac_initialize(QueueHandle_t *pqueue_macpkt){
 bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channel){
 	if(channel < 0) channel = 0;
 	if(channel > 7) channel = 7;
+	phys_corresponds_channel[channel] = phys;
 
 	if(!phys->initialize(hwconf)) {
 		LOG_ERROR(TAG, "Fail to initialize LoRa physical channel %d", channel);
@@ -113,8 +114,6 @@ bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channe
 
 	phys->set_mode_receive_it(0);
 
-	phys_corresponds_channel[channel] = phys;
-
 #if LRWGW_MAC_DEBUG
 	LOG_INFO(TAG, "Add LoRa physical to channel %d[freq: %luHz, sf: %d, bw: %lu, codr: 4/%d]",
 			channel, phys_channel_freq_table[channel], phys_channel_sf_table[channel], phys_channel_bw_table[channel], phys_channel_cdr_table[channel]);
@@ -123,12 +122,17 @@ bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channe
 	return true;
 }
 
-void lrwgw_mac_forward_downlink(lrmac_macpkt_t *pkt){
+void lrmac_send_packet(lrmac_packet_t *pkt){
 	lrphys *phys = phys_corresponds_channel[pkt->channel];
 
 	phys->packet_begin();
 	phys->transmit(pkt->payload, pkt->payload_size);
 	phys->packet_end();
+	phys->set_mode_receive_it(0);
+
+	for(int i=0; i<pkt->payload_size; i++)
+		LOG_MEM(TAG, "%02x", pkt->payload[i]);
+	LOG_WARN(TAG, "Channel sent len = %d", pkt->payload_size);
 }
 
 
@@ -140,11 +144,11 @@ void lrmac_apply_setting(uint8_t channel, lrmac_phys_setting_t *phys_settings){
 	phys_corresponds_channel[channel]->set_spreadingfactor(phys_settings->sf);
 	phys_corresponds_channel[channel]->set_bandwidth(phys_settings->bw);
 	phys_corresponds_channel[channel]->set_codingrate4(phys_settings->codr);
-	phys_corresponds_channel[channel]->set_preamblelength(phys_settings->prea);
-	(phys_settings->crc)? phys_corresponds_channel[channel]->enable_crc():
-						  phys_corresponds_channel[channel]->disable_crc();
-	(phys_settings->iiq)? phys_corresponds_channel[channel]->enable_invertIQ():
-						  phys_corresponds_channel[channel]->disable_invertIQ();
+//	phys_corresponds_channel[channel]->set_preamblelength(phys_settings->prea);
+//	(phys_settings->crc)? phys_corresponds_channel[channel]->enable_crc():
+//						  phys_corresponds_channel[channel]->disable_crc();
+//	(phys_settings->iiq)? phys_corresponds_channel[channel]->enable_invertIQ():
+//						  phys_corresponds_channel[channel]->disable_invertIQ();
 }
 
 void lrmac_restore_default_setting(uint8_t channel){
@@ -164,15 +168,15 @@ uint8_t lrmac_get_channel_by_freq(long freq){
 
 static void lrmac_phys_event_handler(void *arg, lrphys_eventid_t id, uint8_t len){
 	lrphys *phys = (lrphys *)arg;
-	lrmac_macpkt_t *pkt = NULL;
+	lrmac_packet_t *pkt = NULL;
 
 
-	pkt = (lrmac_macpkt_t *)malloc(sizeof(lrmac_macpkt_t));
+	pkt = (lrmac_packet_t *)malloc(sizeof(lrmac_packet_t));
 	if(pkt == NULL) {
 		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
 		return;
 	}
-	memset((void *)pkt, 0, sizeof(lrmac_macpkt_t));
+	memset((void *)pkt, 0, sizeof(lrmac_packet_t));
 
 	uint8_t channel = lrmac_get_phys_channel(phys);
 
@@ -197,7 +201,7 @@ static void lrmac_phys_event_handler(void *arg, lrphys_eventid_t id, uint8_t len
 	if(ret == pdTRUE)
 		LOG_EVENT(TAG, "Channel %d receive uplink data", channel);
 	else
-		LOG_ERROR(TAG, "Error queue full");
+		LOG_ERROR(TAG, "Error queue full at %s -> %d", __FUNCTION__, __LINE__);
 }
 
 static uint8_t lrmac_get_phys_channel(lrphys *phys){

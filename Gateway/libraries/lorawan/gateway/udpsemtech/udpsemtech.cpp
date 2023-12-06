@@ -26,13 +26,15 @@
 #include "lwip/apps/sntp_opts.h"
 #include "lwip/apps/sntp.h"
 
-
+#include "rtc.h"
 
 
 using json = nlohmann::json;
 using string = std::string;
 
 static const char *TAG = "LoRaWAN";
+static RTC_TimeTypeDef rtc_time;
+static RTC_DateTypeDef rtc_date;
 
 static void  udpsem_random_token(udpsem_t *pudp);
 
@@ -47,7 +49,7 @@ static int   udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t
 static int   udpsem_add_txpk_ack_feild(udpsem_t *pudp, uint16_t index, const char *error);
 static const char *udpsem_enum_to_error_str(udpsem_txpk_ack_error_t error);
 
-
+static void  udpsem_update_rtc(void);
 
 
 void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info, QueueHandle_t *pqueue){
@@ -111,6 +113,17 @@ err_t udpsem_connect(udpsem_t *pudp){
     sntp_setserver(0, &pudp->ntp_server_ip);
     sntp_init();
     LOG_INFO(TAG, "Connected to ntp server %s, port %d", pudp->server_info->ntp_server, SNTP_PORT);
+
+    LOG_INFO(TAG, "Waiting for setup......");
+
+    vTaskDelay(5000);
+    udpsem_update_rtc();
+
+	HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+	LOG_INFO("RTC", "%02d/%02d/20%02d - %02d:%02d:%02d",
+		  rtc_date.Date, rtc_date.Month, rtc_date.Year,
+		  rtc_time.Hours, rtc_time.Minutes, rtc_time.Seconds);
 
     LOG_INFO(TAG, "Start LoRaWAN gateway loop.");
 
@@ -199,6 +212,12 @@ err_t udpsem_send_stat(udpsem_t *pudp){
  * DownStream.
  */
 err_t udpsem_keepalive(udpsem_t *pudp){
+	HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+	LOG_INFO("RTC", "%02d/%02d/20%02d - %02d:%02d:%02d",
+		  rtc_date.Date, rtc_date.Month, rtc_date.Year,
+		  rtc_time.Hours, rtc_time.Minutes, rtc_time.Seconds);
+
 	udpsem_config_header(pudp, UDPSEM_HEADERID_PULL_DATA);
 	pudp->req_buffer[LRWGW_HEADER_LENGTH] = 0;
 
@@ -297,6 +316,31 @@ uint32_t udpsem_get_ntp_gps_time(void){
 }
 
 
+
+static void  udpsem_update_rtc(void){
+    struct timeval ntpTime;
+    uint32_t sec, us;
+    /** Get time from NTP server */
+    SNTP_GET_SYSTEM_TIME(sec, us);
+    ntpTime.tv_sec = sec;
+    ntpTime.tv_usec = us;
+    /** Convert to UTC time */
+    struct tm *utc = gmtime(&ntpTime.tv_sec);
+    time_t utc_time = mktime(utc) + LRWGW_TIME_UTC_OFFSET_SEC;
+    struct tm *timeinfo = localtime(&utc_time);
+
+    rtc_time.Hours   = timeinfo->tm_hour;
+    rtc_time.Minutes = timeinfo->tm_min;
+    rtc_time.Seconds = timeinfo->tm_sec;
+    rtc_date.Date    = timeinfo->tm_mday;
+    rtc_date.Month   = timeinfo->tm_mon;
+    rtc_date.Year    = (uint8_t)(timeinfo->tm_year - 100);
+    rtc_date.WeekDay = timeinfo->tm_wday;
+
+    HAL_RTC_SetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
+    HAL_RTC_SetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+}
+
 static void udpsem_random_token(udpsem_t *pudp){
 	uint32_t val;
 	extern RNG_HandleTypeDef hrng;
@@ -323,24 +367,15 @@ static err_t udpsem_send(udpsem_t *pudp, uint8_t *buf, uint16_t len){
 
 static void udpsem_received_handler(void *arg, struct udp_pcb *pcb, struct pbuf *pbuf, const ip_addr_t *addr, u16_t port){
 	udpsem_t *pudp = (udpsem_t *)arg;
-	uint8_t *payload = NULL;
 	udpsem_event_t event;
 
     if(pbuf != NULL) {
-    	payload = (uint8_t *)malloc(pbuf->len * sizeof(uint8_t) + 1);
-    	if(payload == NULL){
-    		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
-    		pbuf_free(pbuf);
-    		return;
-    	}
-    	memcpy(payload, (uint8_t *)pbuf->payload, pbuf->len);
-    	payload[pbuf->len] = 0;
-
-    	event.version = (udpsem_protocol_version_t)payload[0];
-		event.token   = (uint16_t)((payload[1]<<8) | payload[2]);
+    	uint8_t *udp_buffer = (uint8_t *)pbuf->payload;
+    	event.version = (udpsem_protocol_version_t)udp_buffer[0];
+		event.token   = (uint16_t)((udp_buffer[1]<<8) | udp_buffer[2]);
 		event.data = pbuf->payload;
 
-    	switch((udpsem_header_id_t)payload[3]){
+    	switch((udpsem_header_id_t)udp_buffer[3]){
     		case UDPSEM_HEADERID_PUSH_ACK:
     			event.eventid = UDPSEM_EVENTID_RECV_ACK;
     			pudp->ackn++;
@@ -351,15 +386,25 @@ static void udpsem_received_handler(void *arg, struct udp_pcb *pcb, struct pbuf 
 			break;
 
     		case UDPSEM_HEADERID_PULL_PESP:{
+    			uint8_t *payload = NULL;
+
+    	    	payload = (uint8_t *)malloc(pbuf->len * sizeof(uint8_t) + 1);
+    	    	if(payload == NULL){
+    	    		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
+    	    		pbuf_free(pbuf);
+    	    		return;
+    	    	}
+    	    	memset(payload, 0, pbuf->len);
+    	    	memcpy(payload, (uint8_t *)pbuf->payload, pbuf->len);
+    	    	payload[pbuf->len] = 0;
+
     			pudp->dwnb++;
     			pudp->txack_token = event.token;
     			event.eventid = UDPSEM_EVENTID_RECV_DATA;
 
-    			uint8_t *payload_json = (uint8_t *)(payload + 4);
-
     			if((xPortIsInsideInterrupt())?
-    					xQueueSendFromISR(*pudp->pqueue_resp, &payload_json, NULL):
-						xQueueSend(*pudp->pqueue_resp, &payload_json, 10) == pdFALSE){
+    					xQueueSendFromISR(*pudp->pqueue_resp, &payload, NULL):
+						xQueueSend(*pudp->pqueue_resp, &payload, 10) == pdFALSE){
     				LOG_ERROR(TAG, "Queue full, send to queue fail at %s -> %d", __FUNCTION__, __LINE__);
     			}
     		}
@@ -573,7 +618,7 @@ static const char *udpsem_enum_to_error_str(udpsem_txpk_ack_error_t error){
 
 
 
-bool udpsem_parse_pull_resp(uint8_t *buffer, udpsem_txpk_t *txpkt){
+bool udpsem_parse_pull_resp(char *buffer, udpsem_txpk_t *txpkt){
 	uint8_t modu_len = 0;
 	uint8_t data_len = 0;
 	json txpk_json;
