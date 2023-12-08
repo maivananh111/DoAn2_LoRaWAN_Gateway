@@ -120,7 +120,7 @@ void ethernet_wait_ip_address(void){
 			LOG_ERROR(TAG, "Can't get IP address form dhcp, access to network failed.");
 
 //			netif_set_down(&gnetif);
-			if(link_handler) link_handler(ETHERNET_EVENT_LINKDOWN);
+			if(link_handler) link_handler(ETHERNET_EVENT_DHCP_ERROR);
 
 			return;
 		}

@@ -165,7 +165,7 @@ int lrphys::packet_rssi(void) {
 }
 
 float lrphys::packet_snr(void) {
-	return ((int8_t) readRegister(LRPHYS_REG_PKT_SNR_VALUE)) * 0.25;
+	return ((float) readRegister(LRPHYS_REG_PKT_SNR_VALUE)) * 0.25;
 }
 
 long lrphys::packet_freq_error(void) {

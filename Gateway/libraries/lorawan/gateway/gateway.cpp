@@ -33,7 +33,6 @@ typedef struct{
 	uint8_t              channel = 0;
 	bool 				 immediately = false;
 	uint32_t 			 txdelay = 0;
-	uint32_t 			 txstart_time = 0;
 	lrmac_phys_setting_t *setting;
 	lrmac_packet_t       *packet;
 } schedule_item_t;
@@ -169,7 +168,7 @@ static void lrwgw_handle_rxpkt(lorawan_gateway_t *pgtw){
 				lrmac_get_phys_info(macpkt->channel, &phys_info);
 
 				rxpkt.channel  = macpkt->channel;
-				rxpkt.rf_chain = 1;
+				rxpkt.rf_chain = 0;
 				rxpkt.freq     = (float)(phys_info.freq / 1000000.0);
 				rxpkt.crc_stat = 1;
 				rxpkt.sf       = phys_info.sf;
@@ -225,7 +224,7 @@ static void lrwgw_handle_txpkt(lorawan_gateway_t *pgtw){
 		}
 
 
-		gps_time  = udpsem_get_ntp_gps_time();
+		gps_time  = udpsem_get_time_stamp();
 		ack_error = udpsem_check_error(txpkt, gps_time);
 		channel   = lrmac_get_channel_by_freq((long)(txpkt->freq * 1E6));
 
@@ -267,8 +266,7 @@ static void lrwgw_handle_txpkt(lorawan_gateway_t *pgtw){
 
 			schedule_item->channel     = channel;
 			schedule_item->immediately = txpkt->imme;
-			schedule_item->txdelay     = txpkt->tmst - pgtw->udpsemtech.gps_time - 20000;
-			schedule_item->txstart_time = HAL_GetTick();
+			schedule_item->txdelay     = txpkt->tmst;
 			schedule_item->packet      = sendpacket;
 			schedule_item->setting     = phys_setting;
 
@@ -301,7 +299,10 @@ static void lrwgw_udpsemtech_event_handler(udpsem_t *pudp, udpsem_event_t event,
 		break;
 		case UDPSEM_EVENTID_SENT_DATA:
 			LOG_EVENT(TAG, "Sent uplink message");
-			LOG_MEM(TAG, "Sent tmst: %lu", pudp->gps_time);
+//			LOG_MEM(TAG, "Sent tmst: %lu", pudp->gps_time);
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+			vTaskDelay(10);
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 		break;
 		case UDPSEM_EVENTID_RECV_DATA:
 			LOG_EVENT(TAG, "Received downlink message, token = %d", event.token);
@@ -361,16 +362,19 @@ static void lrwgw_task_schedule_downlink(void *pgtw){
 		if(xQueueReceive(queue_sched, &item, 100) == pdTRUE){
 			if(item->immediately == true){ /** forward immediately */
 				LOG_WARN(TAG, "Forward down link immediately");
-//				lrmac_apply_setting(item->channel, phys_settings)
+//				lrmac_apply_setting(item->channel, item->setting);
 				lrmac_send_packet(item->packet);
+//				lrmac_restore_default_setting(item->channel);
 				free(item->setting);
 				free(item->packet);
 				free(item);
 			}
 			else{ /** Schedule down link*/
-				if(HAL_GetTick() - item->txstart_time > item->txdelay/1000){
+				if(udpsem_get_time_stamp() > item->txdelay){
 					LOG_WARN(TAG, "Forward down link with schedule, delay time = %luus", item->txdelay);
+//					lrmac_apply_setting(item->channel, item->setting);
 					lrmac_send_packet(item->packet);
+//					lrmac_restore_default_setting(item->channel);
 					free(item->setting);
 					free(item->packet);
 					free(item);

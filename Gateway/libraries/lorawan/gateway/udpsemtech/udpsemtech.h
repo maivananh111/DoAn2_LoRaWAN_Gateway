@@ -101,8 +101,8 @@ typedef struct{
 	/** Gateway identify */
 	uint64_t   id           = LRWGW_DEFAULT_ID;
 	/** Coordinate */
-    double      latitude;
-    double      longitude;
+    double     latitude;
+    double     longitude;
     int        altitude;
 	/** Information*/
 	const char *platform    = LRWGW_DEFAULT_PLATFORM;
@@ -139,7 +139,7 @@ struct udpsem_handler{
 
 	uint8_t  req_buffer[LRWGW_BUFFER_SIZE];
 	char     utc_time[40];
-	uint32_t gps_time;
+	uint32_t time_stamp;
 
 	uint32_t rxnb; //| number | Number of radio packets received (unsigned integer)
 	uint32_t rxok; //| number | Number of radio packets received with a valid PHY CRC
@@ -161,7 +161,7 @@ typedef struct{
 	uint16_t bw 		  = 125;
 	uint8_t  codr 		  = 5;
 	int8_t   rssi 		  = -1;
-	int8_t   snr          = -1;
+	double   snr          = -1;
 	uint8_t  *data 	      = NULL;
 	uint8_t  size         = 23;
 } udpsem_rxpk_t;
@@ -202,7 +202,7 @@ err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error);
 BaseType_t udpsem_txpkt_available(udpsem_t *pudp, udpsem_txpk_t *ptxpkt);
 bool  udpsem_parse_pull_resp(char *buffer, udpsem_txpk_t *txpkt);
 udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t current_time);
-uint32_t udpsem_get_ntp_gps_time(void);
+uint32_t udpsem_get_time_stamp(void);
 
 
 #ifdef __cplusplus

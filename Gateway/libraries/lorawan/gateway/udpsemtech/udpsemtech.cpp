@@ -27,6 +27,7 @@
 #include "lwip/apps/sntp.h"
 
 #include "rtc.h"
+#include "tim.h"
 
 
 using json = nlohmann::json;
@@ -164,7 +165,7 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
     pudp->req_buffer[index] = '}';
     pudp->req_buffer[index+1] = 0;
 
-//    LOG_WARN(TAG, "%s", (char *)(pudp->req_buffer + 12));
+    LOG_WARN(TAG, "%s", (char *)(pudp->req_buffer + 12));
 
 
 	err_t ret = udpsem_send(pudp, pudp->req_buffer, index+1);
@@ -259,7 +260,6 @@ err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error){
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
 	}
-//	LOG_WARN(TAG, "Send: %s", pudp->req_buffer + LRWGW_HEADER_LENGTH);
 
 	return ERR_OK;
 }
@@ -294,30 +294,8 @@ udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t curr
 	return UDPSEM_ERROR_NONE;
 }
 
-uint32_t udpsem_get_ntp_gps_time(void){
-	uint32_t gps_time;
-	struct tm utc;
-
-    HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
-    HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
-
-    utc.tm_hour = rtc_time.Hours;
-    utc.tm_min  = rtc_time.Minutes;
-    utc.tm_sec  = rtc_time.Seconds;
-    utc.tm_mday = rtc_date.Date;
-    utc.tm_mon  = rtc_date.Month;
-    utc.tm_year = rtc_date.Year + 100;
-    utc.tm_wday = rtc_date.WeekDay;
-
-    struct tm gps_epoch = {
-		.tm_mday = 6,
-		.tm_mon = 0,
-		.tm_year = 1980 - 1900,
-    };
-
-    gps_time = (uint32_t)(mktime(&utc) - mktime(&gps_epoch) + 18);
-
-	return gps_time;
+uint32_t udpsem_get_time_stamp(void){
+	return __HAL_TIM_GET_COUNTER(&htim2);
 }
 
 
@@ -338,7 +316,7 @@ static void  udpsem_update_rtc(void){
     rtc_time.Minutes = timeinfo->tm_min;
     rtc_time.Seconds = timeinfo->tm_sec;
     rtc_date.Date    = timeinfo->tm_mday;
-    rtc_date.Month   = timeinfo->tm_mon;
+    rtc_date.Month   = timeinfo->tm_mon+1;
     rtc_date.Year    = (uint8_t)(timeinfo->tm_year - 100);
     rtc_date.WeekDay = timeinfo->tm_wday;
 
@@ -478,20 +456,14 @@ static void  udpsem_set_timestamp(udpsem_t *pudp){
     utc.tm_min  = rtc_time.Minutes;
     utc.tm_sec  = rtc_time.Seconds;
     utc.tm_mday = rtc_date.Date;
-    utc.tm_mon  = rtc_date.Month;
+    utc.tm_mon  = rtc_date.Month-1;
     utc.tm_year = rtc_date.Year + 100;
     utc.tm_wday = rtc_date.WeekDay;
 
     utc_time = mktime(&utc);
     strftime(pudp->utc_time, sizeof pudp->utc_time, "%F %T %Z", gmtime(&utc_time));
 
-    struct tm gps_epoch = {
-		.tm_mday = 6,
-		.tm_mon = 0,
-		.tm_year = 1980 - 1900,
-    };
-
-    pudp->gps_time = (uint32_t)(utc_time - mktime(&gps_epoch) + 18);
+	pudp->time_stamp = udpsem_get_time_stamp();
 }
 
 static int udpsem_add_stat_feild(udpsem_t *pudp, uint16_t index){
@@ -586,7 +558,7 @@ static int udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t *
 				"\"datr\":\"SF%dBW%d\","\
 				"\"codr\":\"4/%d\","\
 				"\"rssi\":%d,"\
-				"\"lsnr\":%d,"\
+				"\"lsnr\":%.2f,"\
 				"\"size\":%d,"\
 				"\"data\":\"%s\","\
 				"\"tmst\":%lu"\
@@ -602,7 +574,7 @@ static int udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t *
 		pkt->snr,
 		pkt->size,
 		base64_out,
-		(uint32_t)pudp->gps_time
+		(uint32_t)pudp->time_stamp
 	);
 
 	free(base64_out);

@@ -79,8 +79,8 @@ void lrmac_get_phys_info(uint8_t channel, lrmac_phys_info_t *info){
 	info->bw   = phys_channel_bw_table[channel];
 	info->sf   = phys_channel_sf_table[channel];
 	info->cdr  = phys_channel_cdr_table[channel];
-	info->rssi = info->phys->packet_rssi();
-	info->snr  = info->phys->packet_snr();
+	info->rssi = (double)info->phys->packet_rssi();
+	info->snr  = (int8_t)info->phys->packet_snr();
 }
 
 

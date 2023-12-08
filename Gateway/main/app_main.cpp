@@ -138,6 +138,14 @@ void ethernet_link_event_handler(ethernet_event_t event){
 			lrmac_suspend_physical();
 		break;
 
+		case ETHERNET_EVENT_DHCP_ERROR:
+			LOG_EVENT(TAG, "Ethernet event DHCP error");
+
+			vTaskDelay(1000);
+
+			__NVIC_SystemReset();
+		break;
+
 		case ETHERNET_EVENT_GOTIP:
 			LOG_EVENT(TAG, "Ethernet event got IP");
 //			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
