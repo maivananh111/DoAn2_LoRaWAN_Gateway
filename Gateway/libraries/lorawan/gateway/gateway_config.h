@@ -14,35 +14,35 @@
 
 #define LRWGW_SYNCWORD 			  0x34
 
-#define LRWGW_CH0_SF  			  7
+#define LRWGW_CH0_SF  			  10
 #define LRWGW_CH0_BW  			  125E3
 #define LRWGW_CH0_CDR 			  5
 
-#define LRWGW_CH1_SF  			  7
+#define LRWGW_CH1_SF  			  10
 #define LRWGW_CH1_BW  			  125E3
 #define LRWGW_CH1_CDR 			  5
 
-#define LRWGW_CH2_SF  			  7
+#define LRWGW_CH2_SF  			  10
 #define LRWGW_CH2_BW  			  125E3
 #define LRWGW_CH2_CDR 			  5
 
-#define LRWGW_CH3_SF  			  7
+#define LRWGW_CH3_SF  			  10
 #define LRWGW_CH3_BW  			  125E3
 #define LRWGW_CH3_CDR 			  5
 
-#define LRWGW_CH4_SF  			  7
+#define LRWGW_CH4_SF  			  10
 #define LRWGW_CH4_BW  			  125E3
 #define LRWGW_CH4_CDR 			  5
 
-#define LRWGW_CH5_SF  			  7
+#define LRWGW_CH5_SF  			  10
 #define LRWGW_CH5_BW  			  125E3
 #define LRWGW_CH5_CDR 			  5
 
-#define LRWGW_CH6_SF  			  7
+#define LRWGW_CH6_SF  			  10
 #define LRWGW_CH6_BW  			  125E3
 #define LRWGW_CH6_CDR 			  5
 
-#define LRWGW_CH7_SF  			  7
+#define LRWGW_CH7_SF  			  10
 #define LRWGW_CH7_BW  			  125E3
 #define LRWGW_CH7_CDR 			  5
 

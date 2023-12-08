@@ -368,7 +368,6 @@ QSPI_Configuration(void) {
 
 uint8_t
 CSP_QSPI_EraseSector(uint32_t EraseStartAddress, uint32_t EraseEndAddress) {
-	LOG_DEBUG(TAG, "%s", __FUNCTION__);
     QSPI_CommandTypeDef sCommand;
 
 
@@ -411,7 +410,6 @@ CSP_QSPI_EraseSector(uint32_t EraseStartAddress, uint32_t EraseEndAddress) {
 
 uint8_t
 CSP_QSPI_WriteMemory(uint8_t* buffer, uint32_t address, uint32_t buffer_size) {
-	LOG_DEBUG(TAG, "%s", __FUNCTION__);
     QSPI_CommandTypeDef sCommand;
     uint32_t end_addr, current_size, current_addr;
 
@@ -498,7 +496,6 @@ CSP_QSPI_WriteMemory(uint8_t* buffer, uint32_t address, uint32_t buffer_size) {
 
 uint8_t
 CSP_QSPI_EnableMemoryMappedMode(void) {
-	LOG_DEBUG(TAG, "%s", __FUNCTION__);
     QSPI_CommandTypeDef sCommand;
     QSPI_MemoryMappedTypeDef sMemMappedCfg;
 
@@ -527,7 +524,6 @@ CSP_QSPI_EnableMemoryMappedMode(void) {
 
 uint8_t
 QSPI_ResetChip() {
-	LOG_DEBUG(TAG, "%s", __FUNCTION__);
     QSPI_CommandTypeDef sCommand;
     uint32_t temp = 0;
     /* Erasing Sequence -------------------------------------------------- */

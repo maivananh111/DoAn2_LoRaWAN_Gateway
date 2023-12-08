@@ -47,6 +47,7 @@ typedef struct{
 
 void lrmac_initialize(QueueHandle_t *pqueue_macpkt);
 bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channel = 0);
+void lrmac_suspend_physical(void);
 
 void lrmac_get_phys_info(uint8_t channel, lrmac_phys_info_t *info);
 uint8_t lrmac_get_channel_by_freq(long freq);

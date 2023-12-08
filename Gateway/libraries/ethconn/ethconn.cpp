@@ -15,7 +15,7 @@
 /**
  * Extern ethernet, net interface struct and variable.
  */
-static const char *TAG = "ETHCONN";
+static const char *TAG = "ETHERNET LINK";
 extern struct netif gnetif;
 extern ETH_HandleTypeDef heth;
 

@@ -57,7 +57,7 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void (*u_app_program)(void);
-uint8_t bootmsg[] = "STM32H750VBTx bootting.\r\nSwitch to application.....\r\n\r\n";
+uint8_t bootmsg[] = "\r\n\r\nMCU bootting.\r\nSwitch to application at 0x90000000...\r\n";
 /* USER CODE END 0 */
 
 /**

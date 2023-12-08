@@ -47,7 +47,7 @@ int Init(void) {
     MX_UART8_Init();
 
 	log_monitor_init(log_out);
-	log_out((char*) "\r\n*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*External loader for STM32H7 device series*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*");
+	log_out((char*) "\r\n*+*+*+*+*+*+*+*+*+*External loader for STM32H7 device series*+*+*+*+*+*+*+*+*+*");
 
 	LOG_INFO(TAG, "%s", __FUNCTION__);
     __HAL_RCC_QSPI_FORCE_RESET();  //completely reset peripheral

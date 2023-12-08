@@ -48,6 +48,7 @@ class lrphys{
 		lrphys(void);
 
 		bool initialize(lrphys_hwconfig_t *conf = NULL);
+		void stop(void);
 		void register_event_handler(lrphys_evtcb_f event_handler_function = NULL, void *parameter = NULL);
 
 		void set_mode_receive_it(uint8_t size);

@@ -121,9 +121,9 @@ err_t udpsem_connect(udpsem_t *pudp){
 
 	HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
 	HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
-	LOG_INFO("RTC", "%02d/%02d/20%02d - %02d:%02d:%02d",
+	LOG_INFO("RTC", "%02d/%02d/20%02d - %02d:%02d:%02d %d",
 		  rtc_date.Date, rtc_date.Month, rtc_date.Year,
-		  rtc_time.Hours, rtc_time.Minutes, rtc_time.Seconds);
+		  rtc_time.Hours, rtc_time.Minutes, rtc_time.Seconds, rtc_date.WeekDay);
 
     LOG_INFO(TAG, "Start LoRaWAN gateway loop.");
 
@@ -132,6 +132,8 @@ err_t udpsem_connect(udpsem_t *pudp){
 
 err_t udpsem_disconnect(udpsem_t *pudp){
 	udp_disconnect(pudp->udp);
+	udp_remove(pudp->udp);
+	sntp_stop();
 
 	return ERR_OK;
 }
@@ -161,6 +163,8 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
 
     pudp->req_buffer[index] = '}';
     pudp->req_buffer[index+1] = 0;
+
+//    LOG_WARN(TAG, "%s", (char *)(pudp->req_buffer + 12));
 
 
 	err_t ret = udpsem_send(pudp, pudp->req_buffer, index+1);
@@ -212,12 +216,6 @@ err_t udpsem_send_stat(udpsem_t *pudp){
  * DownStream.
  */
 err_t udpsem_keepalive(udpsem_t *pudp){
-	HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
-	HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
-	LOG_INFO("RTC", "%02d/%02d/20%02d - %02d:%02d:%02d",
-		  rtc_date.Date, rtc_date.Month, rtc_date.Year,
-		  rtc_time.Hours, rtc_time.Minutes, rtc_time.Seconds);
-
 	udpsem_config_header(pudp, UDPSEM_HEADERID_PULL_DATA);
 	pudp->req_buffer[LRWGW_HEADER_LENGTH] = 0;
 
@@ -261,7 +259,7 @@ err_t udpsem_send_tx_ack(udpsem_t *pudp, udpsem_txpk_ack_error_t error){
 			pudp->event_handler(pudp, event, pudp->event_parameter);
 		}
 	}
-
+//	LOG_WARN(TAG, "Send: %s", pudp->req_buffer + LRWGW_HEADER_LENGTH);
 
 	return ERR_OK;
 }
@@ -284,33 +282,40 @@ udpsem_txpk_ack_error_t  udpsem_check_error(udpsem_txpk_t *ptxpkt, uint32_t curr
 		return UDPSEM_ERROR_TX_POWER;
 	}
 	/** Check response time */
-	if(ptxpkt->tmst < current_time){
-		LOG_DEBUG(TAG, "Down link message too early");
-		return UDPSEM_ERROR_TOO_EARLY;
-	}
-	else{
-		LOG_DEBUG(TAG, "Down link message to late");
-		return UDPSEM_ERROR_TOO_LATE;
-	}
+//	if(ptxpkt->tmst < current_time){
+//		LOG_DEBUG(TAG, "Down link message too early");
+//		return UDPSEM_ERROR_TOO_EARLY;
+//	}
+//	else{
+//		LOG_DEBUG(TAG, "Down link message to late");
+//		return UDPSEM_ERROR_TOO_LATE;
+//	}
 
 	return UDPSEM_ERROR_NONE;
 }
 
 uint32_t udpsem_get_ntp_gps_time(void){
-	struct timeval ntp_time;
-	uint64_t gps_time;
-    uint32_t sec, us;
+	uint32_t gps_time;
+	struct tm utc;
 
-    SNTP_GET_SYSTEM_TIME(sec, us);
-    ntp_time.tv_sec = sec;
-    ntp_time.tv_usec = us;
-    struct tm *utc = gmtime(&ntp_time.tv_sec);
+    HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+
+    utc.tm_hour = rtc_time.Hours;
+    utc.tm_min  = rtc_time.Minutes;
+    utc.tm_sec  = rtc_time.Seconds;
+    utc.tm_mday = rtc_date.Date;
+    utc.tm_mon  = rtc_date.Month;
+    utc.tm_year = rtc_date.Year + 100;
+    utc.tm_wday = rtc_date.WeekDay;
+
     struct tm gps_epoch = {
 		.tm_mday = 6,
 		.tm_mon = 0,
 		.tm_year = 1980 - 1900,
-	};
-	gps_time = (uint32_t)(mktime(utc) - mktime(&gps_epoch) + 18);
+    };
+
+    gps_time = (uint32_t)(mktime(&utc) - mktime(&gps_epoch) + 18);
 
 	return gps_time;
 }
@@ -399,7 +404,7 @@ static void udpsem_received_handler(void *arg, struct udp_pcb *pcb, struct pbuf 
     	    	payload[pbuf->len] = 0;
 
     			pudp->dwnb++;
-    			pudp->txack_token = event.token;
+    			pudp->txack_token = (uint16_t)((udp_buffer[1]<<8) | udp_buffer[2]);
     			event.eventid = UDPSEM_EVENTID_RECV_DATA;
 
     			if((xPortIsInsideInterrupt())?
@@ -443,20 +448,18 @@ static void  udpsem_config_header(udpsem_t *pudp, udpsem_header_id_t headerid){
 }
 
 static void  udpsem_set_timestamp(udpsem_t *pudp){
+/*
     struct timeval ntpTime;
     uint32_t sec, us;
 
-    /** Get time from NTP server */
     SNTP_GET_SYSTEM_TIME(sec, us);
     ntpTime.tv_sec = sec;
     ntpTime.tv_usec = us;
 
-    /** Convert to UTC time */
     struct tm *utc = gmtime(&ntpTime.tv_sec);
     time_t utc_time = mktime(utc) + LRWGW_TIME_UTC_OFFSET_SEC;
     strftime(pudp->utc_time, sizeof pudp->utc_time, "%F %T %Z", gmtime(&utc_time));
 
-    /** Convert to GPS time */
     struct tm gps_epoch = {
 		.tm_mday = 6,
 		.tm_mon = 0,
@@ -464,6 +467,31 @@ static void  udpsem_set_timestamp(udpsem_t *pudp){
     };
 
     pudp->gps_time = (uint32_t)(mktime(utc) - mktime(&gps_epoch) + 18);
+*/
+	struct tm utc;
+	time_t utc_time;
+
+    HAL_RTC_GetTime(&hrtc, &rtc_time, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+
+    utc.tm_hour = rtc_time.Hours;
+    utc.tm_min  = rtc_time.Minutes;
+    utc.tm_sec  = rtc_time.Seconds;
+    utc.tm_mday = rtc_date.Date;
+    utc.tm_mon  = rtc_date.Month;
+    utc.tm_year = rtc_date.Year + 100;
+    utc.tm_wday = rtc_date.WeekDay;
+
+    utc_time = mktime(&utc);
+    strftime(pudp->utc_time, sizeof pudp->utc_time, "%F %T %Z", gmtime(&utc_time));
+
+    struct tm gps_epoch = {
+		.tm_mday = 6,
+		.tm_mon = 0,
+		.tm_year = 1980 - 1900,
+    };
+
+    pudp->gps_time = (uint32_t)(utc_time - mktime(&gps_epoch) + 18);
 }
 
 static int udpsem_add_stat_feild(udpsem_t *pudp, uint16_t index){
@@ -543,9 +571,9 @@ static int udpsem_add_rxpk_feild(udpsem_t *pudp, uint16_t index, udpsem_rxpk_t *
 	 size | number | RF packet payload size in bytes (unsigned integer)
 	 data | string | Base64 encoded RF packet payload, padded
 */
-	uint8_t *base64_out = (uint8_t *)malloc(LRWGW_BUFFER_SIZE);
+	char *base64_out = (char *)malloc(LRWGW_BUFFER_SIZE);
 
-	base64_encode(pkt->data, pkt->size, base64_out);
+	bin_to_b64((const uint8_t *)pkt->data, pkt->size, base64_out, 400);
 
 	int i = snprintf((char *)(pudp->req_buffer+index), LRWGW_BUFFER_SIZE-index,
 		"\"rxpk\":["\

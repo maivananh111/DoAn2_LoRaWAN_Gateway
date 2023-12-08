@@ -31,8 +31,8 @@ static void app_main_task(void *param) {
 
 int edf_main_application(void) {
 	log_monitor_init(log_out);
-	log_out((char*) "\r\n\r\n");
-	log_out((char*) "\r\n\r\n*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*Target starting*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*\r\n");
+	log_out((char*) "\r\n");
+	log_out((char*) "*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*Target starting*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*+*");
 
 	BaseType_t app_start_status = xTaskCreate(app_main_task, "app_main_task",
 			APP_MAIN_TASK_STACKSIZE_BYTE / 4, NULL, 1, NULL);
@@ -46,6 +46,16 @@ int edf_main_application(void) {
 
 static void log_out(char *log) {
 	HAL_UART_Transmit(&huart8, (uint8_t*) log, strlen(log), 1000);
+}
+
+extern "C" int _write(int file, char *ptr, int len){
+	(void)file;
+
+	HAL_UART_Transmit(&huart8, (uint8_t*)ptr, len, 1000);
+
+	fflush(stdout);
+
+	return len;
 }
 
 

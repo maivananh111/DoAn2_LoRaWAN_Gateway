@@ -29,7 +29,7 @@
  */
 
 
-#define GATEWAY_ID   0xACAE1F2C324C44F5
+#define GATEWAY_ID   0xABCDEFFF01020304
 
 #define NTP_SERVER "asia.pool.ntp.org"
 #define TTN_SERVER "au1.cloud.thethings.network"
@@ -52,7 +52,7 @@ lrphys_hwconfig_t lora_ch0_hw = {
 
 void ethernet_link_event_handler(ethernet_event_t event);
 void lorawan_gateway_event_handler(lorawan_gateway_t *pgtw, lorawan_gateway_event_t event, void *param);
-void task_lorawan_gateway(void *);
+//void task_lorawan_gateway(void *);
 
 lorawan_gateway_t gateway = {
 	.server_info = {
@@ -91,6 +91,7 @@ void app_main(void){
 /**
  *
  */
+/*
 void task_lorawan(void *){
 	lorawan_gateway_initialize(&gateway);
 
@@ -108,11 +109,14 @@ void task_lorawan(void *){
 		vTaskDelay(1000);
 	}
 }
+*/
 /**
  *
  */
 void lorawan_gateway_event_handler(lorawan_gateway_t *pgtw, lorawan_gateway_event_t event, void *param){
-
+	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+	vTaskDelay(10);
+	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 }
 
 
@@ -126,12 +130,28 @@ void ethernet_link_event_handler(ethernet_event_t event){
 		case ETHERNET_EVENT_LINKUP:
 			LOG_EVENT(TAG, "Ethernet event link up");
 		break;
+
 		case ETHERNET_EVENT_LINKDOWN:
 			LOG_EVENT(TAG, "Ethernet event link down");
+
+			lorawan_gateway_stop(&gateway);
+			lrmac_suspend_physical();
 		break;
+
 		case ETHERNET_EVENT_GOTIP:
 			LOG_EVENT(TAG, "Ethernet event got IP");
-			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
+//			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
+
+			lorawan_gateway_initialize(&gateway);
+
+			lorawan_gateway_register_event_handler(&gateway, lorawan_gateway_event_handler, NULL);
+
+			while(lorawan_gateway_start(&gateway) != ERR_OK){
+				LOG_ERROR("LoRaWAN gateway", "Fail to start gateway...");
+				vTaskDelay(1000);
+			}
+
+			lrmac_link_physical(&lora_ch0, &lora_ch0_hw, 0);
 		break;
 	}
 }

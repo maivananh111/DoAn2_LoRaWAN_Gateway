@@ -40,6 +40,13 @@ bool lrphys::initialize(lrphys_hwconfig_t *conf) {
 	return true;
 }
 
+void lrphys::stop(void){
+	idle();
+	sleep();
+
+	HAL_GPIO_WritePin(_conf->cs_port, _conf->cs_pin, GPIO_PIN_SET);
+}
+
 void lrphys::register_event_handler(lrphys_evtcb_f event_handler_function,
 		void *parameter) {
 	_event_handler = event_handler_function;

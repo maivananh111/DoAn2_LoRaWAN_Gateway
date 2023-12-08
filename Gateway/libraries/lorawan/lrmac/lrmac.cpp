@@ -122,6 +122,13 @@ bool lrmac_link_physical(lrphys *phys, lrphys_hwconfig_t *hwconf, uint8_t channe
 	return true;
 }
 
+void lrmac_suspend_physical(void){
+	for(int i=0; i<8; i++){
+		if(phys_corresponds_channel[i] != NULL)
+			phys_corresponds_channel[i]->stop();
+	}
+}
+
 void lrmac_send_packet(lrmac_packet_t *pkt){
 	lrphys *phys = phys_corresponds_channel[pkt->channel];
 
@@ -129,10 +136,6 @@ void lrmac_send_packet(lrmac_packet_t *pkt){
 	phys->transmit(pkt->payload, pkt->payload_size);
 	phys->packet_end();
 	phys->set_mode_receive_it(0);
-
-	for(int i=0; i<pkt->payload_size; i++)
-		LOG_MEM(TAG, "%02x", pkt->payload[i]);
-	LOG_WARN(TAG, "Channel sent len = %d", pkt->payload_size);
 }
 
 
