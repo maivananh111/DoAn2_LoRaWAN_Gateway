@@ -116,6 +116,7 @@ int main(void)
   MX_SPI1_Init();
   MX_RTC_Init();
   MX_TIM2_Init();
+  MX_SPI4_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
   __HAL_RCC_D2SRAM1_CLK_ENABLE();

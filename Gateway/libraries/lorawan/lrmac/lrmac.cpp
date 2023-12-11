@@ -135,6 +135,23 @@ void lrmac_send_packet(lrmac_packet_t *pkt){
 	phys->packet_begin();
 	phys->transmit(pkt->payload, pkt->payload_size);
 	phys->packet_end();
+
+	lrmac_packet_t *evpkt = NULL;
+	evpkt = (lrmac_packet_t *)malloc(sizeof(lrmac_packet_t));
+	if(evpkt == NULL) {
+		LOG_ERROR(TAG, "Memory exhausted, malloc fail at %s -> %d", __FUNCTION__, __LINE__);
+		return;
+	}
+	memset((void *)evpkt, 0, sizeof(lrmac_packet_t));
+	evpkt->channel = pkt->channel;
+	evpkt->payload_size = 0;
+	evpkt->payload = NULL;
+	evpkt->eventid = LRPHYS_TRANSMIT_COMPLETED;
+
+	BaseType_t ret = (xPortIsInsideInterrupt())? xQueueSendFromISR(*pqueue, &evpkt, NULL) : xQueueSend(*pqueue, &evpkt, 10);
+	if(ret != pdTRUE)
+		LOG_ERROR(TAG, "Error queue full at %s -> %d", __FUNCTION__, __LINE__);
+
 	phys->set_mode_receive_it(0);
 }
 
@@ -147,11 +164,13 @@ void lrmac_apply_setting(uint8_t channel, lrmac_phys_setting_t *phys_settings){
 	phys_corresponds_channel[channel]->set_spreadingfactor(phys_settings->sf);
 	phys_corresponds_channel[channel]->set_bandwidth(phys_settings->bw);
 	phys_corresponds_channel[channel]->set_codingrate4(phys_settings->codr);
-//	phys_corresponds_channel[channel]->set_preamblelength(phys_settings->prea);
+	phys_corresponds_channel[channel]->set_preamblelength(phys_settings->prea);
+
 //	(phys_settings->crc)? phys_corresponds_channel[channel]->enable_crc():
 //						  phys_corresponds_channel[channel]->disable_crc();
 //	(phys_settings->iiq)? phys_corresponds_channel[channel]->enable_invertIQ():
 //						  phys_corresponds_channel[channel]->disable_invertIQ();
+	phys_corresponds_channel[channel]->set_mode_receive_it(0);
 }
 
 void lrmac_restore_default_setting(uint8_t channel){
@@ -193,7 +212,7 @@ static void lrmac_phys_event_handler(void *arg, lrphys_eventid_t id, uint8_t len
 	}
 	else if(id == LRPHYS_ERROR_CRC){
 		pkt->payload = NULL;
-		LOG_ERROR(TAG, "Phys received packet with invalid CRC");
+		LOG_ERROR(TAG, "Phys channel %d received packet with invalid CRC", channel);
 	}
 	else{
 		pkt->payload = NULL;
@@ -201,9 +220,7 @@ static void lrmac_phys_event_handler(void *arg, lrphys_eventid_t id, uint8_t len
 	pkt->eventid = id;
 
 	BaseType_t ret = xQueueSendFromISR(*pqueue, &pkt, NULL);
-	if(ret == pdTRUE)
-		LOG_EVENT(TAG, "Channel %d receive uplink data", channel);
-	else
+	if(ret != pdTRUE)
 		LOG_ERROR(TAG, "Error queue full at %s -> %d", __FUNCTION__, __LINE__);
 }
 

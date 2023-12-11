@@ -165,9 +165,6 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
     pudp->req_buffer[index] = '}';
     pudp->req_buffer[index+1] = 0;
 
-    LOG_WARN(TAG, "%s", (char *)(pudp->req_buffer + 12));
-
-
 	err_t ret = udpsem_send(pudp, pudp->req_buffer, index+1);
 	if(ret == ERR_OK){
 		if(pudp->event_handler != NULL){
@@ -181,7 +178,7 @@ err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat)
 		}
 		pudp->txnb++;
 	}
-	pudp->ackr = ((double)pudp->ackn / (double)pudp->txnb) / 100.0;
+	pudp->ackr = (double)(((double)pudp->ackn / (double)pudp->txnb) * 100.0);
 
 	return ERR_OK;
 }
@@ -426,26 +423,6 @@ static void  udpsem_config_header(udpsem_t *pudp, udpsem_header_id_t headerid){
 }
 
 static void  udpsem_set_timestamp(udpsem_t *pudp){
-/*
-    struct timeval ntpTime;
-    uint32_t sec, us;
-
-    SNTP_GET_SYSTEM_TIME(sec, us);
-    ntpTime.tv_sec = sec;
-    ntpTime.tv_usec = us;
-
-    struct tm *utc = gmtime(&ntpTime.tv_sec);
-    time_t utc_time = mktime(utc) + LRWGW_TIME_UTC_OFFSET_SEC;
-    strftime(pudp->utc_time, sizeof pudp->utc_time, "%F %T %Z", gmtime(&utc_time));
-
-    struct tm gps_epoch = {
-		.tm_mday = 6,
-		.tm_mon = 0,
-		.tm_year = 1980 - 1900,
-    };
-
-    pudp->gps_time = (uint32_t)(mktime(utc) - mktime(&gps_epoch) + 18);
-*/
 	struct tm utc;
 	time_t utc_time;
 

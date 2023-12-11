@@ -1,0 +1,14 @@
+Set triac: 1000
+Set triac: 8000
+Set triac: 4000
+Set triac: 6800
+Set triac: 4000
+Set triac: 6800
+Set triac: 6500
+Set triac: 7000
+Set triac: 7200
+Set triac: 7200
+Set triac: 4000
+Set triac: 4500
+Set triac: 3500
+Set triac: 4100

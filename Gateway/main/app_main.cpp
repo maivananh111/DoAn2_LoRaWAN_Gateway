@@ -50,15 +50,25 @@ lrphys_hwconfig_t lora_ch0_hw = {
 	.io0_pin  = LORA1_IO0_Pin
 };
 
+lrphys lora_ch1;
+lrphys_hwconfig_t lora_ch1_hw = {
+	.spi      = &hspi4,
+	.cs_port  = LORA2_CS_GPIO_Port,
+	.cs_pin   = LORA2_CS_Pin,
+	.rst_port = LORA2_RST_GPIO_Port,
+	.rst_pin  = LORA2_RST_Pin,
+	.io0_port = LORA2_IO0_GPIO_Port,
+	.io0_pin  = LORA2_IO0_Pin
+};
+
 void ethernet_link_event_handler(ethernet_event_t event);
 void lorawan_gateway_event_handler(lorawan_gateway_t *pgtw, lorawan_gateway_event_t event, void *param);
-//void task_lorawan_gateway(void *);
 
 lorawan_gateway_t gateway = {
 	.server_info = {
 		.ttn_server = TTN_SERVER,
-		.port = TTN_PORT,
-		.udpver = UDPSEM_PROTOVER_2,
+		.port       = TTN_PORT,
+		.udpver     = UDPSEM_PROTOVER_2,
 		.ntp_server = NTP_SERVER,
 	},
 	.gateway_info = {
@@ -87,35 +97,28 @@ void app_main(void){
 	}
 }
 
-
-/**
- *
- */
-/*
-void task_lorawan(void *){
-	lorawan_gateway_initialize(&gateway);
-
-	lrmac_link_physical(&lora_ch0, &lora_ch0_hw, 0);
-
-	lorawan_gateway_register_event_handler(&gateway, lorawan_gateway_event_handler, NULL);
-
-	while(lorawan_gateway_start(&gateway) != ERR_OK){
-		LOG_ERROR("LoRaWAN gateway", "Fail to start gateway...");
-		vTaskDelay(1000);
-	}
-
-
-	while(1){
-		vTaskDelay(1000);
-	}
-}
-*/
 /**
  *
  */
 void lorawan_gateway_event_handler(lorawan_gateway_t *pgtw, lorawan_gateway_event_t event, void *param){
+	static const char *TAG = "LoRaWAN gateway event";
+
 	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-	vTaskDelay(10);
+	switch(event){
+		case LORAWAN_GATEWAY_CONNECT:
+			LOG_WARN(TAG, "LORAWAN_GATEWAY_CONNECT");
+		break;
+		case LORAWAN_GATEWAY_DISCONNECT:
+			LOG_WARN(TAG, "LORAWAN_GATEWAY_DISCONNECT");
+		break;
+		case LORAWAN_GATEWAY_EVENT_DOWNLINK:
+			LOG_WARN(TAG, "LORAWAN_GATEWAY_EVENT_DOWNLINK");
+		break;
+		case LORAWAN_GATEWAY_EVENT_UPLINK:
+			LOG_WARN(TAG, "LORAWAN_GATEWAY_EVENT_UPLINK");
+		break;
+	}
+
 	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 }
 
@@ -148,8 +151,7 @@ void ethernet_link_event_handler(ethernet_event_t event){
 
 		case ETHERNET_EVENT_GOTIP:
 			LOG_EVENT(TAG, "Ethernet event got IP");
-//			xTaskCreate(task_lorawan, "task_lorawan", 10240/4, NULL, 10, NULL);
-
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 			lorawan_gateway_initialize(&gateway);
 
 			lorawan_gateway_register_event_handler(&gateway, lorawan_gateway_event_handler, NULL);
@@ -160,6 +162,9 @@ void ethernet_link_event_handler(ethernet_event_t event){
 			}
 
 			lrmac_link_physical(&lora_ch0, &lora_ch0_hw, 0);
+			lrmac_link_physical(&lora_ch1, &lora_ch1_hw, 1);
+
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 		break;
 	}
 }
@@ -167,5 +172,8 @@ void ethernet_link_event_handler(ethernet_event_t event){
 extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == LORA1_IO0_Pin){
 		lora_ch0.IRQHandler();
+	}
+	if(GPIO_Pin == LORA2_IO0_Pin){
+		lora_ch1.IRQHandler();
 	}
 }

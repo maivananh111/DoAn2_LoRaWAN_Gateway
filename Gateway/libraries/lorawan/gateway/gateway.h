@@ -26,8 +26,8 @@ extern "C"{
 typedef enum{
 	LORAWAN_GATEWAY_CONNECT,
 	LORAWAN_GATEWAY_DISCONNECT,
-	LORAWAN_GATEWAY_EVENT_UPLINK,
 	LORAWAN_GATEWAY_EVENT_DOWNLINK,
+	LORAWAN_GATEWAY_EVENT_UPLINK,
 } lorawan_gateway_event_t;
 
 typedef struct lorawan_gateway lorawan_gateway_t;

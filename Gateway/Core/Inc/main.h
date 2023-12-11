@@ -72,6 +72,16 @@ void Error_Handler(void);
 #define ETH_LINK_INT_Pin GPIO_PIN_0
 #define ETH_LINK_INT_GPIO_Port GPIOC
 #define ETH_LINK_INT_EXTI_IRQn EXTI0_IRQn
+#define LORA2_IO0_Pin GPIO_PIN_9
+#define LORA2_IO0_GPIO_Port GPIOE
+#define LORA2_IO0_EXTI_IRQn EXTI9_5_IRQn
+#define LORA2_IO1_Pin GPIO_PIN_10
+#define LORA2_IO1_GPIO_Port GPIOE
+#define LORA2_IO1_EXTI_IRQn EXTI15_10_IRQn
+#define LORA2_CS_Pin GPIO_PIN_11
+#define LORA2_CS_GPIO_Port GPIOE
+#define LORA2_RST_Pin GPIO_PIN_15
+#define LORA2_RST_GPIO_Port GPIOE
 #define UART8_RX_Pin GPIO_PIN_0
 #define UART8_RX_GPIO_Port GPIOE
 #define UART8_TX_Pin GPIO_PIN_1

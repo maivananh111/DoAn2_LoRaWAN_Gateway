@@ -112,8 +112,11 @@ typedef struct{
 
 
 typedef struct udpsem_handler udpsem_t;
-typedef void(*udpsem_event_handler_f)(udpsem_t *pudp, udpsem_event_t event, void *param);
-
+typedef void    (*udpsem_event_handler_f)(udpsem_t *pudp, udpsem_event_t event, void *param);
+typedef uint32_t(*udpsem_get_timestamp_f)(void);
+typedef uint32_t(*udpsem_get_random_f)(void);
+typedef void    (*udpsem_get_rtc_f)(struct tm*);
+typedef void    (*udpsem_set_rtc_f)(struct tm*);
 
 
 
@@ -141,13 +144,17 @@ struct udpsem_handler{
 	char     utc_time[40];
 	uint32_t time_stamp;
 
+	udpsem_get_timestamp_f f_get_timestamp;
+	udpsem_get_random_f    f_get_random;
+	udpsem_get_rtc_f       f_get_rtc;
+	udpsem_set_rtc_f       f_set_rtc;
+
 	uint32_t rxnb; //| number | Number of radio packets received (unsigned integer)
 	uint32_t rxok; //| number | Number of radio packets received with a valid PHY CRC
 	uint32_t rxfw; //| number | Number of radio packets forwarded (unsigned integer)
-	double    ackr; //| number | Percentage of upstream datagrams that were acknowledged
+	double   ackr; //| number | Percentage of upstream datagrams that were acknowledged
 	uint32_t dwnb; //| number | Number of downlink datagrams received (unsigned integer)
 	uint32_t txnb; //| number | Number of packets emitted (unsigned integer)
-
 	uint32_t ackn; //| number | Number of push acknowledge.
 };
 
@@ -168,23 +175,25 @@ typedef struct{
 
 
 typedef struct{
-	bool     imme 	      = false;//
-	uint32_t tmst         = 0;//
-	uint32_t tmms         = 0;//
-	uint16_t rfch 	      = 0;//
-	double   freq 		  = 923.00000;//
-	uint8_t  powe         = 20;//
-	char     *modu        = (char *)"LORA";//
-	uint8_t  sf 		  = 7;//
-	uint16_t bw 		  = 125;//
-	uint8_t  codr 		  = 5;//
-	uint32_t prea         = 8;//
-	uint32_t fdev         = 0;//
-	bool     ipol         = false;//
+	bool     imme 	      = false;
+	uint32_t tmst         = 0;
+	uint32_t tmms         = 0;
+	uint16_t rfch 	      = 0;
+	double   freq 		  = 923.00000;
+	uint8_t  powe         = 20;
+	char     *modu        = (char *)"LORA";
+	uint8_t  sf 		  = 7;
+	int      bw 		  = 125;
+	uint8_t  codr 		  = 5;
+	uint32_t prea         = 8;
+	uint32_t fdev         = 0;
+	bool     ipol         = false;
 	bool     ncrc  		  = false;
 	uint8_t  *data        = NULL;
 	uint8_t  size  		  = 23;
 } udpsem_txpk_t;
+
+
 
 
 void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpsem_gateway_info_t *gtw_info, QueueHandle_t *pqueue);
@@ -192,6 +201,7 @@ void  udpsem_initialize(udpsem_t *pudp, udpsem_server_info_t *server_info, udpse
 err_t udpsem_connect(udpsem_t *pudp);
 err_t udpsem_disconnect(udpsem_t *pudp);
 
+void udpsem_register_port_function(udpsem_get_timestamp_f f_get_timestamp, udpsem_get_random_f f_get_random, udpsem_get_rtc_f f_get_rtc, udpsem_set_rtc_f f_set_rtc);
 void udpsem_register_event_handler(udpsem_t *pudp, udpsem_event_handler_f event_handler_function, void *param);
 
 err_t udpsem_push_data(udpsem_t *pudp, udpsem_rxpk_t *prxpkt, uint8_t incl_stat);
